@@ -230,24 +230,19 @@ function renderTree() {
   const width = 1200
   const nodeHeight = 60
   const nodeWidth = 120
+  const rulerWidth = 80
+  const rulerStartY = 40
 
-  // 计算树的高度
-  function getDepth(node: TreeNode, depth = 0): number {
-    if (!node.children || node.children.length === 0) return depth
-    return Math.max(...node.children.map(c => getDepth(c, depth + 1)))
+  // ---- 年份数据 ----
+  const birthYearMap = new Map<number, number>()
+  for (const m of props.members) {
+    if (m.birthYear != null) birthYearMap.set(m.id, m.birthYear)
   }
-  const depth = getDepth(treeData)
-  const height = Math.max(400, (depth + 1) * 180)
-  svgHeight.value = height
 
-  svg.attr('viewBox', `0 0 ${width} ${height}`)
-
-  const g = svg.append('g').attr('transform', 'translate(0, 40)')
-
-  // 计算树布局
+  // ---- 用 D3 计算 X 布局 ----
   const root = d3.hierarchy(treeData, d => d.children)
   const treeLayout = d3.tree<TreeNode>()
-    .size([width - 200, (depth + 1) * 150])
+    .size([width - 200, 100]) // Y 会被覆盖，这里仅要 X
     .separation((a, b) => {
       const aWide = !!(a.data as TreeNode).spouse
       const bWide = !!(b.data as TreeNode).spouse
@@ -255,7 +250,86 @@ function renderTree() {
     })
   treeLayout(root)
 
-  // 画连线（跳过虚拟根的连线）
+  // ---- 推断缺失的出生年份（从上到下） ----
+  function estimateYear(d: d3.HierarchyNode<TreeNode>): number {
+    const id = d.data.id
+    if (birthYearMap.has(id)) return birthYearMap.get(id)!
+
+    let minChildYear = Infinity
+    if (d.children) {
+      for (const child of d.children) {
+        const cy = estimateYear(child)
+        if (cy < minChildYear) minChildYear = cy
+      }
+    }
+    if (minChildYear < Infinity) return minChildYear - 25
+
+    // 无子节点、无出生年份：按辈分推算
+    return 1990 - d.data.generation * 25
+  }
+
+  // 收集所有真实节点年份
+  const visibleNodes = root.descendants().filter(d => d.data.id !== 0)
+  const allYears = visibleNodes.map(d => estimateYear(d))
+  let minYear = Math.min(...allYears) - 5
+  let maxYear = Math.max(...allYears) + 5
+  const yearRange = maxYear - minYear
+
+  const yearScale = Math.max(6, Math.min(12, (1200 - rulerStartY - 60) / yearRange))
+  const contentHeight = yearRange * yearScale + rulerStartY + 60
+  svgHeight.value = contentHeight
+  svg.attr('viewBox', `0 0 ${width} ${contentHeight}`)
+
+  function yearToY(year: number): number {
+    return rulerStartY + (maxYear - year) * yearScale
+  }
+
+  // 覆写 Y 坐标
+  visibleNodes.forEach(d => { d.y = yearToY(estimateYear(d)) })
+
+  // ---- 年份尺子 ----
+  const rulerG = svg.append('g').attr('transform', `translate(${rulerWidth - 15}, 0)`)
+
+  // 主线
+  rulerG.append('line')
+    .attr('x1', 0).attr('y1', yearToY(maxYear + 5))
+    .attr('x2', 0).attr('y2', yearToY(minYear - 5))
+    .attr('stroke', '#cbd5e1')
+    .attr('stroke-width', 1.5)
+
+  // 刻度与标签，自动选择合适步长
+  const tickStep = yearRange > 100 ? 20 : yearRange > 50 ? 10 : 5
+  for (let y = Math.ceil(minYear / tickStep) * tickStep; y <= maxYear; y += tickStep) {
+    const py = yearToY(y)
+    const isMajor = y % (tickStep * 2) === 0
+    rulerG.append('line')
+      .attr('x1', 0).attr('y1', py)
+      .attr('x2', isMajor ? 12 : 6).attr('y2', py)
+      .attr('stroke', '#94a3b8')
+      .attr('stroke-width', isMajor ? 1.5 : 0.8)
+
+    // 水平参考线
+    svg.append('line')
+      .attr('x1', rulerWidth).attr('y1', py)
+      .attr('x2', width).attr('y2', py)
+      .attr('stroke', isMajor ? '#e2e8f0' : '#f1f5f9')
+      .attr('stroke-width', isMajor ? 1 : 0.5)
+
+    if (isMajor) {
+      rulerG.append('text')
+        .attr('x', 16).attr('y', py)
+        .attr('dy', '0.35em')
+        .attr('fill', '#64748b')
+        .attr('font-size', '11px')
+        .attr('font-family', 'monospace')
+        .text(String(y))
+    }
+  }
+
+  // ---- 树连线与节点 ----
+  const g = svg.append('g').attr('transform', `translate(${rulerWidth - 5}, 0)`)
+
+  // 连线
   g.selectAll('path.link')
     .data(root.links().filter((l: any) => l.source.data.id !== 0))
     .enter().append('path')
@@ -271,7 +345,7 @@ function renderTree() {
       return `M${sx},${sy} L${sx},${(sy + ty) / 2} L${tx},${(sy + ty) / 2} L${tx},${ty}`
     })
 
-  // 辅助函数：绘制一个卡片
+  // 辅助函数：绘制卡片（与之前相同）
   function drawCard(container: d3.Selection<SVGGElement, any, any, any>, xOffset: number, nodeData: TreeNode, isSpouse: boolean) {
     const card = container.append('g')
       .attr('transform', `translate(${xOffset}, 0)`)
@@ -297,9 +371,19 @@ function renderTree() {
       .attr('font-size', '13px')
       .attr('font-weight', '600')
       .text(nodeData.name)
+
+    // 显示出生年份小字
+    if (nodeData.id && birthYearMap.has(nodeData.id)) {
+      card.append('text')
+        .attr('text-anchor', 'middle')
+        .attr('dy', '1.6em')
+        .attr('fill', '#94a3b8')
+        .attr('font-size', '10px')
+        .text(String(birthYearMap.get(nodeData.id)!))
+    }
   }
 
-  // 画节点（跳过虚拟根节点）
+  // 画节点
   const nodeG = g.selectAll('g.node')
     .data(root.descendants().filter(d => d.data.id !== 0))
     .enter().append('g')
@@ -310,34 +394,24 @@ function renderTree() {
     const el = d3.select(this)
 
     if (data.spouse) {
-      // 夫妻并排：两个独立卡片，链接线从中间引出
       const coupleOffset = 70
-
-      // 丈夫卡片（左侧）
       drawCard(el, -coupleOffset, data, false)
-
-      // 妻子卡片（右侧）
       drawCard(el, +coupleOffset, data.spouse!, true)
 
-      // 婚姻连接线
-      const innerRight = -coupleOffset + nodeWidth / 2   // 丈夫卡片右边缘
-      const innerLeft  = +coupleOffset - nodeWidth / 2   // 妻子卡片左边缘
+      const innerRight = -coupleOffset + nodeWidth / 2
+      const innerLeft  = +coupleOffset - nodeWidth / 2
       el.append('line')
-        .attr('x1', innerRight)
-        .attr('y1', 0)
-        .attr('x2', innerLeft)
-        .attr('y2', 0)
+        .attr('x1', innerRight).attr('y1', 0)
+        .attr('x2', innerLeft).attr('y2', 0)
         .attr('stroke', '#eab308')
         .attr('stroke-width', 2)
 
-      // 婚姻连接线中点的小圆点
       el.append('circle')
         .attr('cx', (innerRight + innerLeft) / 2)
         .attr('cy', 0)
         .attr('r', 2.5)
         .attr('fill', '#eab308')
     } else {
-      // 单身：居中放置
       drawCard(el, 0, data, false)
     }
   })
