@@ -179,6 +179,47 @@ function buildTree(): TreeNode | null {
     }
   }
 
+  // 如果配偶双方都是根节点，合并所有子节点到一方并移除另一方
+  if (roots.length > 1) {
+    const spouseRemoval = new Set<number>()
+    const processed = new Set<number>()
+
+    for (const r of roots) {
+      if (processed.has(r.id)) continue
+      const node = nodeMap.get(r.id)
+      if (!node) continue
+
+      // 找到也在 roots 中的配偶
+      const spouseRoot = roots.find(rr => rr.id === node.spouse?.id && !processed.has(rr.id))
+      if (!spouseRoot) {
+        processed.add(r.id)
+        continue
+      }
+
+      const spouseNode = nodeMap.get(spouseRoot.id)
+      if (!spouseNode) { processed.add(r.id); continue }
+
+      // 选择有子节点的作为主根（优先男性）
+      const primary = node.gender === 1 ? node : spouseNode
+      const secondary = node.gender === 1 ? spouseNode : node
+      processed.add(primary.id)
+      processed.add(secondary.id)
+
+      // 将次要方独有的子节点合并到主根
+      for (const child of secondary.children) {
+        if (!primary.children.some(c => c.id === child.id)) {
+          primary.children.push(child)
+        }
+      }
+      secondary.children = []
+      spouseRemoval.add(secondary.id)
+    }
+
+    if (spouseRemoval.size > 0) {
+      roots = roots.filter(r => !spouseRemoval.has(r.id))
+    }
+  }
+
   // 过滤掉作为配偶重复的根节点（优先保留有子节点的）
   if (roots.length > 1) {
     const spouseOnlyIds = new Set<number>()
