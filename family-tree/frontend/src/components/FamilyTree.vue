@@ -321,10 +321,10 @@ function renderTree() {
   }
 
   // 估计配偶的出生年份
-  function estimateSpouseYear(spouseData: TreeNode, mainYear: number): number {
+  function estimateSpouseYear(spouseData: TreeNode, _mainYear: number): number {
     if (birthYearMap.has(spouseData.id)) return birthYearMap.get(spouseData.id)!
-    // 无出生年份，用主节点的预估年份
-    return mainYear
+    // 无出生年份，用辈分推算
+    return 1990 - spouseData.generation * 25
   }
 
   // 收集所有节点年份（含配偶）
@@ -413,7 +413,7 @@ function renderTree() {
     })
 
   // 辅助函数：绘制卡片
-  function drawCard(container: d3.Selection<SVGGElement, any, any, any>, xOffset: number, yOffset: number, nodeData: TreeNode) {
+  function drawCard(container: d3.Selection<SVGGElement, any, any, any>, xOffset: number, yOffset: number, nodeData: TreeNode, displayYear?: number) {
     const card = container.append('g')
       .attr('transform', `translate(${xOffset}, ${yOffset})`)
 
@@ -440,13 +440,14 @@ function renderTree() {
       .text(nodeData.name)
 
     // 显示出生年份小字
-    if (nodeData.id && birthYearMap.has(nodeData.id)) {
+    const yearToShow = displayYear ?? (nodeData.id ? birthYearMap.get(nodeData.id) : undefined)
+    if (yearToShow != null) {
       card.append('text')
         .attr('text-anchor', 'middle')
         .attr('dy', '1.6em')
         .attr('fill', '#94a3b8')
         .attr('font-size', '10px')
-        .text(String(birthYearMap.get(nodeData.id)!))
+        .text(String(yearToShow))
     }
   }
 
@@ -467,7 +468,7 @@ function renderTree() {
       const spouseYOffset = yearToY(spouseYear) - yearToY(mainYear)
 
       drawCard(el, -coupleOffset, 0, data)
-      drawCard(el, +coupleOffset, spouseYOffset, data.spouse!)
+      drawCard(el, +coupleOffset, spouseYOffset, data.spouse!, spouseYear)
 
       const innerRight = -coupleOffset + nodeWidth / 2
       const innerLeft  = +coupleOffset - nodeWidth / 2
