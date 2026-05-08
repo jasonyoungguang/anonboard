@@ -140,9 +140,15 @@ public class AdminFamilyController {
         FamilyMember existing = memberService.getById(id);
         if (existing == null) return Result.error(404, "成员不存在");
 
-        boolean isParent = "father".equals(req.getRelationType()) || "mother".equals(req.getRelationType());
-        int newGeneration = isParent ? existing.getGeneration() - 1 : existing.getGeneration() + 1;
-        int gender = "father".equals(req.getRelationType()) || "son".equals(req.getRelationType()) ? 1 : 2;
+        String type = req.getRelationType();
+        boolean isParent = "father".equals(type) || "mother".equals(type);
+        boolean isSpouse = "wife".equals(type) || "husband".equals(type);
+
+        int newGeneration = isParent ? existing.getGeneration() - 1
+                         : isSpouse ? existing.getGeneration()
+                         : existing.getGeneration() + 1;
+
+        int gender = "father".equals(type) || "son".equals(type) || "husband".equals(type) ? 1 : 2;
 
         FamilyMember newMember = new FamilyMember();
         newMember.setName(req.getName());
@@ -151,7 +157,11 @@ public class AdminFamilyController {
         newMember.setBirthYear(req.getBirthYear());
         newMember.setDeathYear(req.getDeathYear());
 
-        if (memberService.addRelative(id, newMember, isParent)) {
+        if (isSpouse) {
+            if (memberService.addSpouse(id, newMember)) {
+                return Result.success();
+            }
+        } else if (memberService.addRelative(id, newMember, isParent)) {
             return Result.success();
         }
         return Result.error(500, "添加亲属失败");

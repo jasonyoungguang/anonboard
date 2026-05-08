@@ -92,4 +92,15 @@ public class FamilyMemberService {
             }
         }
     }
+
+    @Transactional
+    public boolean addSpouse(Long existingId, FamilyMember spouse) {
+        memberMapper.insert(spouse);
+
+        FamilyRelationship rel = new FamilyRelationship();
+        rel.setMemberAId(existingId);
+        rel.setMemberBId(spouse.getId());
+        rel.setRelationType("spouse");
+        return relationshipMapper.insert(rel) > 0;
+    }
 }

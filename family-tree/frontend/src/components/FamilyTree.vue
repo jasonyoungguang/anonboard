@@ -45,7 +45,7 @@ function handleNodeClick(event: MouseEvent, treeNode: TreeNode) {
 function openAddRelative(type: string) {
   showContextMenu.value = false
   relativeType.value = type
-  const labels: Record<string, string> = { father: '父亲', mother: '母亲', son: '儿子', daughter: '女儿' }
+  const labels: Record<string, string> = { father: '父亲', mother: '母亲', son: '儿子', daughter: '女儿', wife: '妻子', husband: '丈夫' }
   relativeLabel.value = labels[type] || type
   relativeForm.value = { name: '', birthYear: null, deathYear: null }
   showRelativeModal.value = true
@@ -340,6 +340,9 @@ watch(() => [props.members, props.relationships], renderTree, { deep: true })
         <button class="ctx-menu-item" @click.stop="openAddRelative('mother')">添加母亲</button>
         <button class="ctx-menu-item" @click.stop="openAddRelative('son')">添加儿子</button>
         <button class="ctx-menu-item" @click.stop="openAddRelative('daughter')">添加女儿</button>
+        <div class="ctx-menu-divider"></div>
+        <button v-if="menuTarget?.gender === 1" class="ctx-menu-item" @click.stop="openAddRelative('wife')">添加妻子</button>
+        <button v-if="menuTarget?.gender === 2" class="ctx-menu-item" @click.stop="openAddRelative('husband')">添加丈夫</button>
       </div>
     </div>
 
