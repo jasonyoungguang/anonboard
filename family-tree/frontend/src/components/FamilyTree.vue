@@ -234,13 +234,28 @@ function buildTree(): TreeNode | null {
 
   // 移除配偶已在树中但不在根中的孤立配偶根（避免双重显示）
   if (roots.length > 1) {
+    // 收集所有根及其子孙链中的节点 ID
+    const reachableIds = new Set<number>()
+    for (const r of roots) {
+      const node = nodeMap.get(r.id)
+      if (!node) continue
+      reachableIds.add(r.id)
+      const stack = [...node.children]
+      while (stack.length > 0) {
+        const n = stack.pop()!
+        reachableIds.add(n.id)
+        stack.push(...n.children)
+      }
+    }
     roots = roots.filter(r => {
       const node = nodeMap.get(r.id)
       if (!node?.spouse) return true
-      // 如果配偶在 roots 中，让已有的配偶合并逻辑处理
+      // 配偶也在 roots 中 → 留给配偶合并逻辑
       if (roots.some(rr => rr.id === node.spouse!.id)) return true
-      // 配偶在树中（非根） → 此节点仅作配偶卡片展示，不作为独立根
-      return false
+      // 配偶已在树中（reachableIds）→ 此根仅作配偶卡片，不作为独立根
+      if (reachableIds.has(node.spouse!.id)) return false
+      // 配偶不在 reachableIds 中 → 说明配偶孤立或尚未链接，保留
+      return true
     })
   }
 
