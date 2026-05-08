@@ -24,10 +24,20 @@ public class FamilyStoryService {
     }
 
     public List<FamilyStory> getStoriesByMember(Long memberId) {
+        return getVisibleStoriesByMember(memberId, null);
+    }
+
+    public List<FamilyStory> getVisibleStoriesByMember(Long memberId, String submitterName) {
         LambdaQueryWrapper<FamilyStory> wrapper = new LambdaQueryWrapper<>();
-        wrapper.eq(FamilyStory::getMemberId, memberId)
-                .eq(FamilyStory::getStatus, 1)
-                .orderByAsc(FamilyStory::getStoryYear);
+        wrapper.eq(FamilyStory::getMemberId, memberId);
+        if (submitterName != null && !submitterName.isEmpty()) {
+            wrapper.and(w -> w.eq(FamilyStory::getStatus, 1)
+                    .or()
+                    .eq(FamilyStory::getStatus, 0).eq(FamilyStory::getSubmitterName, submitterName));
+        } else {
+            wrapper.eq(FamilyStory::getStatus, 1);
+        }
+        wrapper.orderByAsc(FamilyStory::getStoryYear);
         return storyMapper.selectList(wrapper);
     }
 

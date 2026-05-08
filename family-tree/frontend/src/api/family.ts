@@ -48,12 +48,16 @@ export function getFamilyTree() {
   return http.get<{ code: number; data: FamilyTreeData }>('/family/tree')
 }
 
-export function getMemberDetail(id: number) {
-  return http.get<{ code: number; data: MemberDetail }>(`/family/member/${id}`)
+export function getMemberDetail(id: number, submitterName?: string) {
+  return http.get<{ code: number; data: MemberDetail }>(`/family/member/${id}`, {
+    params: submitterName ? { submitterName } : undefined
+  })
 }
 
-export function getMemberStories(id: number) {
-  return http.get<{ code: number; data: FamilyStory[] }>(`/family/member/${id}/stories`)
+export function getMemberStories(id: number, submitterName?: string) {
+  return http.get<{ code: number; data: FamilyStory[] }>(`/family/member/${id}/stories`, {
+    params: submitterName ? { submitterName } : undefined
+  })
 }
 
 export function getAllStories() {

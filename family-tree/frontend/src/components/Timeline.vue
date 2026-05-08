@@ -1,14 +1,30 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import type { FamilyStory } from '@/api/family'
 import { useRouter } from 'vue-router'
 
 const router = useRouter()
-defineProps<{
+const props = withDefaults(defineProps<{
   stories: FamilyStory[]
-}>()
+  showMemberLink?: boolean
+}>(), {
+  showMemberLink: true
+})
 
 function goToMember(memberId: number) {
   router.push(`/member/${memberId}`)
+}
+
+function statusLabel(status: number): string {
+  if (status === 0) return '待审核'
+  if (status === 2) return '已驳回'
+  return ''
+}
+
+function statusClass(status: number): string {
+  if (status === 0) return 'status-pending'
+  if (status === 2) return 'status-rejected'
+  return ''
 }
 </script>
 
@@ -19,11 +35,16 @@ function goToMember(memberId: number) {
         {{ s.storyYear || '?' }}年
         <template v-if="s.storyMonth">{{ s.storyMonth }}月</template>
       </div>
-      <div class="timeline-title">{{ s.title }}</div>
+      <div class="timeline-header">
+        <span class="timeline-title">{{ s.title }}</span>
+        <span v-if="s.status !== 1" :class="['timeline-status', statusClass(s.status)]">
+          {{ statusLabel(s.status) }}
+        </span>
+      </div>
       <div class="timeline-content">
         <p v-if="s.content">{{ s.content }}</p>
-        <p style="margin-top:4px;font-size:12px;color:var(--primary)">
-          <a href="#" @click.prevent="goToMember(s.memberId)">查看人物详情 →</a>
+        <p v-if="showMemberLink" style="margin-top:4px;font-size:12px;color:var(--primary)">
+          <a href="#" @click.prevent="goToMember(s.memberId)">查看人物详情 &rarr;</a>
         </p>
       </div>
     </div>
@@ -33,3 +54,25 @@ function goToMember(memberId: number) {
     <p>还没有已审核的生平事迹</p>
   </div>
 </template>
+
+<style scoped>
+.timeline-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.timeline-status {
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-weight: 500;
+}
+.status-pending {
+  background: #fef3c7;
+  color: #92400e;
+}
+.status-rejected {
+  background: #fee2e2;
+  color: #991b1b;
+}
+</style>

@@ -20,8 +20,9 @@ public class FamilyStoryController {
     }
 
     @GetMapping("/member/{id}/stories")
-    public Result<List<FamilyStory>> getMemberStories(@PathVariable Long id) {
-        return Result.success(storyService.getStoriesByMember(id));
+    public Result<List<FamilyStory>> getMemberStories(@PathVariable Long id,
+                                                       @RequestParam(required = false) String submitterName) {
+        return Result.success(storyService.getVisibleStoriesByMember(id, submitterName));
     }
 
     @GetMapping("/stories")

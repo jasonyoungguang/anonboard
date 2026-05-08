@@ -38,13 +38,14 @@ public class FamilyMemberController {
     }
 
     @GetMapping("/member/{id}")
-    public Result<MemberDetailResp> getMemberDetail(@PathVariable Long id) {
+    public Result<MemberDetailResp> getMemberDetail(@PathVariable Long id,
+                                                     @RequestParam(required = false) String submitterName) {
         FamilyMember member = memberService.getById(id);
         if (member == null) {
             return Result.error(404, "成员不存在");
         }
         List<FamilyRelationship> relationships = relationshipService.getRelationsByMember(id);
-        List<FamilyStory> stories = storyService.getStoriesByMember(id);
+        List<FamilyStory> stories = storyService.getVisibleStoriesByMember(id, submitterName);
 
         MemberDetailResp resp = new MemberDetailResp();
         resp.setMember(member);

@@ -2,7 +2,7 @@
 import { ref, onMounted, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import Timeline from '@/components/Timeline.vue'
-import { getMemberDetail, getFamilyTree } from '@/api/family'
+import { getMemberDetail, getFamilyTree, submitStory } from '@/api/family'
 import type { FamilyMember, FamilyRelationship, FamilyStory } from '@/api/family'
 
 const route = useRoute()
@@ -12,6 +12,24 @@ const member = ref<FamilyMember | null>(null)
 const relationships = ref<FamilyRelationship[]>([])
 const stories = ref<FamilyStory[]>([])
 const allMembers = ref<FamilyMember[]>([])
+
+// 提交者身份 - localStorage 持久化
+const SUBMITTER_KEY = 'anonboard_submitter_name'
+const submitterName = ref(localStorage.getItem(SUBMITTER_KEY) || '')
+
+// 故事提交表单
+const showStoryForm = ref(false)
+const storySubmitting = ref(false)
+const storyForm = ref({
+  title: '',
+  content: '',
+  storyYear: undefined as number | undefined,
+  storyMonth: undefined as number | undefined,
+  category: '生平'
+})
+const storyFormError = ref('')
+const storyFormSuccess = ref('')
+const categories = ['生平', '求学', '工作', '婚姻', '成就', '其他']
 
 const memberMap = computed(() => {
   const map = new Map<number, FamilyMember>()
@@ -56,7 +74,7 @@ async function loadData() {
   loading.value = true
   try {
     const [detailRes, treeRes] = await Promise.all([
-      getMemberDetail(id),
+      getMemberDetail(id, submitterName.value || undefined),
       getFamilyTree()
     ])
     member.value = detailRes.data.data?.member || null
@@ -70,6 +88,71 @@ async function loadData() {
     stories.value = []
   } finally {
     loading.value = false
+  }
+}
+
+function toggleStoryForm() {
+  showStoryForm.value = !showStoryForm.value
+  storyFormError.value = ''
+  storyFormSuccess.value = ''
+  if (!showStoryForm.value) {
+    resetStoryForm()
+  }
+}
+
+function resetStoryForm() {
+  storyForm.value = {
+    title: '',
+    content: '',
+    storyYear: undefined,
+    storyMonth: undefined,
+    category: '生平'
+  }
+}
+
+function saveSubmitterName(name: string) {
+  submitterName.value = name
+  localStorage.setItem(SUBMITTER_KEY, name)
+}
+
+async function handleSubmitStory() {
+  storyFormError.value = ''
+  storyFormSuccess.value = ''
+
+  if (!submitterName.value.trim()) {
+    storyFormError.value = '请先输入您的姓名'
+    return
+  }
+
+  if (!storyForm.value.title.trim()) {
+    storyFormError.value = '请输入事迹标题'
+    return
+  }
+
+  storySubmitting.value = true
+  try {
+    await submitStory({
+      memberId: member.value!.id,
+      title: storyForm.value.title.trim(),
+      content: storyForm.value.content.trim() || undefined,
+      storyYear: storyForm.value.storyYear,
+      storyMonth: storyForm.value.storyMonth,
+      category: storyForm.value.category,
+      submitterName: submitterName.value.trim()
+    })
+    storyFormSuccess.value = '事迹已提交，待管理员审核后公开显示'
+    saveSubmitterName(submitterName.value.trim())
+    resetStoryForm()
+    // 重新加载故事列表以显示刚提交的故事
+    await loadData()
+    setTimeout(() => {
+      showStoryForm.value = false
+      storyFormSuccess.value = ''
+    }, 3000)
+  } catch (e: any) {
+    storyFormError.value = e?.response?.data?.message || '提交失败，请稍后重试'
+  } finally {
+    storySubmitting.value = false
   }
 }
 
@@ -136,11 +219,95 @@ watch(() => route.params.id, loadData)
 
       <!-- 生平事迹 -->
       <div style="margin-top:24px">
-        <h3 class="card-title" style="margin-bottom:16px">生平事迹</h3>
-        <Timeline v-if="stories.length > 0" :stories="stories" />
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+          <h3 class="card-title" style="margin-bottom:0">生平事迹</h3>
+          <button class="btn btn-primary" @click="toggleStoryForm" style="font-size:13px;padding:6px 14px">
+            {{ showStoryForm ? '取消' : '+ 提交事迹' }}
+          </button>
+        </div>
+
+        <!-- 故事提交表单 -->
+        <div v-if="showStoryForm" class="card" style="margin-bottom:16px">
+          <!-- 提交者身份 -->
+          <div class="form-group">
+            <label class="form-label">您的姓名 <span style="color:#ef4444">*</span></label>
+            <input
+              v-model="submitterName"
+              type="text"
+              class="form-input"
+              placeholder="请输入您的姓名（将用于识别您提交的事迹）"
+              @change="saveSubmitterName(submitterName.trim())"
+            />
+          </div>
+
+          <div class="form-row">
+            <div class="form-group" style="flex:2">
+              <label class="form-label">事迹标题 <span style="color:#ef4444">*</span></label>
+              <input
+                v-model="storyForm.title"
+                type="text"
+                class="form-input"
+                placeholder="例如：考入北京大学"
+              />
+            </div>
+            <div class="form-group" style="flex:1">
+              <label class="form-label">类别</label>
+              <select v-model="storyForm.category" class="form-input">
+                <option v-for="c in categories" :key="c" :value="c">{{ c }}</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group" style="flex:1">
+              <label class="form-label">年份</label>
+              <input
+                v-model.number="storyForm.storyYear"
+                type="number"
+                class="form-input"
+                placeholder="如 2000"
+              />
+            </div>
+            <div class="form-group" style="flex:1">
+              <label class="form-label">月份</label>
+              <input
+                v-model.number="storyForm.storyMonth"
+                type="number"
+                class="form-input"
+                min="1"
+                max="12"
+                placeholder="1-12"
+              />
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">详细内容</label>
+            <textarea
+              v-model="storyForm.content"
+              class="form-input"
+              rows="4"
+              placeholder="描述该事迹的具体内容..."
+            ></textarea>
+          </div>
+
+          <div v-if="storyFormError" class="form-error">{{ storyFormError }}</div>
+          <div v-if="storyFormSuccess" class="form-success">{{ storyFormSuccess }}</div>
+
+          <button
+            class="btn btn-primary"
+            @click="handleSubmitStory"
+            :disabled="storySubmitting"
+            style="margin-top:8px"
+          >
+            {{ storySubmitting ? '提交中...' : '提交事迹' }}
+          </button>
+        </div>
+
+        <Timeline v-if="stories.length > 0" :stories="stories" :showMemberLink="false" />
         <div v-else class="empty-state">
           <h3>暂无事迹记录</h3>
-          <p>等待管理员添加或用户提交</p>
+          <p>点击上方 "+ 提交事迹" 来添加生平事迹</p>
         </div>
       </div>
     </template>
@@ -169,5 +336,56 @@ watch(() => route.params.id, loadData)
 .rel-name {
   font-weight: 500;
   color: #1e293b;
+}
+
+.form-group {
+  margin-bottom: 12px;
+}
+.form-label {
+  display: block;
+  font-size: 13px;
+  font-weight: 500;
+  color: #475569;
+  margin-bottom: 4px;
+}
+.form-input {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  font-size: 14px;
+  color: #1e293b;
+  background: #fff;
+  box-sizing: border-box;
+  transition: border-color 0.15s;
+}
+.form-input:focus {
+  outline: none;
+  border-color: var(--primary, #3b82f6);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+.form-row {
+  display: flex;
+  gap: 12px;
+}
+.form-error {
+  color: #ef4444;
+  font-size: 13px;
+  margin-top: 4px;
+  padding: 8px 12px;
+  background: #fef2f2;
+  border-radius: 6px;
+}
+.form-success {
+  color: #16a34a;
+  font-size: 13px;
+  margin-top: 4px;
+  padding: 8px 12px;
+  background: #f0fdf4;
+  border-radius: 6px;
+}
+
+textarea.form-input {
+  resize: vertical;
 }
 </style>
