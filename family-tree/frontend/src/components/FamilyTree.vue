@@ -111,15 +111,7 @@ interface TreeNode {
 function buildTree(): TreeNode | null {
   if (props.members.length === 0) return null
 
-  // 按辈分排序
-  const sorted = [...props.members].sort((a, b) => (a.generation ?? 999) - (b.generation ?? 999))
-  const rootGen = sorted[0].generation || 0
-
-  // 找到最高辈分的人作为根
-  let roots = sorted.filter(m => m.generation === rootGen)
-  if (roots.length === 0) return null
-
-  // 构建树
+  // 构建节点映射
   const nodeMap = new Map<number, TreeNode>()
   for (const m of props.members) {
     nodeMap.set(m.id, {
@@ -131,7 +123,8 @@ function buildTree(): TreeNode | null {
     })
   }
 
-  // 通过 parent-child 关系链接
+  // 通过 parent-child 关系链接，同时记录哪些节点是子女
+  const childSet = new Set<number>()
   for (const rel of props.relationships) {
     if (rel.relationType === 'parent-child') {
       // memberAId 是父母, memberBId 是子女
@@ -139,9 +132,14 @@ function buildTree(): TreeNode | null {
       const child = nodeMap.get(rel.memberBId)
       if (parent && child) {
         parent.children.push(child)
+        childSet.add(child.id)
       }
     }
   }
+
+  // 根节点 = 没有父节点的节点
+  let roots = Array.from(nodeMap.values()).filter(n => !childSet.has(n.id))
+  if (roots.length === 0) return null
 
   // 添加配偶信息
   for (const rel of props.relationships) {
@@ -234,13 +232,26 @@ function buildTree(): TreeNode | null {
     }
   }
 
+  // 移除配偶已在树中但不在根中的孤立配偶根（避免双重显示）
+  if (roots.length > 1) {
+    roots = roots.filter(r => {
+      const node = nodeMap.get(r.id)
+      if (!node?.spouse) return true
+      // 如果配偶在 roots 中，让已有的配偶合并逻辑处理
+      if (roots.some(rr => rr.id === node.spouse!.id)) return true
+      // 配偶在树中（非根） → 此节点仅作配偶卡片展示，不作为独立根
+      return false
+    })
+  }
+
   if (roots.length === 1) return nodeMap.get(roots[0].id) || null
 
   // 多个根节点：创建虚拟根节点聚合所有分支
+  const minRootGen = Math.min(...roots.map(r => r.generation))
   const virtualRoot: TreeNode = {
     id: 0,
     name: '',
-    generation: rootGen - 1,
+    generation: minRootGen - 1,
     gender: 0,
     children: []
   }
