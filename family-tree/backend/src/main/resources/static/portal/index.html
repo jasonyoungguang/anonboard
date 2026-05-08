@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Personal Platform - 个人工具集合</title>
+  <meta name="description" content="Personal Platform 个人工具集合门户，包含 LLM 技术教程、RAG 演示等实用工具" />
+  <link rel="stylesheet" href="portal.css" />
+</head>
+<body>
+  <!-- Header -->
+  <header class="header">
+    <div class="container">
+      <div class="header-content">
+        <div class="logo">
+          <svg class="logo-icon" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <rect x="2" y="2" width="28" height="28" rx="8" class="logo-bg" />
+            <path d="M10 22V10h4l4 8 4-8h4v12h-3V13l-3.5 7h-3L12 13v9h-2z" class="logo-text" />
+          </svg>
+          <div>
+            <h1 class="logo-title">Personal Platform</h1>
+            <p class="logo-subtitle">个人工具集合平台</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main -->
+  <main class="main">
+    <div class="container">
+      <div class="hero-section">
+        <h2 class="hero-title">工具导航</h2>
+        <p class="hero-desc">一站式访问所有个人工具，点击卡片即可进入</p>
+      </div>
+
+      <!-- Tool grid -->
+      <div class="tool-grid" id="toolGrid">
+        <!-- LLM Tutorial -->
+        <a href="llm-tutorial/dist/index.html" class="tool-card" data-status="ready">
+          <div class="card-icon card-icon-blue">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 2L2 7l10 5 10-5-10-5z" />
+              <path d="M2 17l10 5 10-5" />
+              <path d="M2 12l10 5 10-5" />
+            </svg>
+          </div>
+          <div class="card-body">
+            <h3 class="card-title">LLM & RAG 技术解析</h3>
+            <p class="card-desc">深入理解大语言模型原理、向量数据库与检索增强生成技术，包含交互式 RAG 演示。</p>
+          </div>
+          <div class="card-footer">
+            <span class="badge badge-ready">已就绪</span>
+            <span class="card-arrow">&rarr;</span>
+          </div>
+        </a>
+
+        <!-- Family Tree -->
+        <a href="/" class="tool-card" data-status="ready">
+          <div class="card-icon card-icon-green">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M5 10V3h6v7" />
+              <path d="M19 10V3h-6v7" />
+              <path d="M3 21h6v-6H3z" />
+              <path d="M15 21h6v-6h-6z" />
+              <path d="M8 14v3" />
+              <path d="M16 14v3" />
+              <path d="M12 10v4" />
+              <path d="M12 14h3l-3 4" />
+              <path d="M9 18l3-4" />
+            </svg>
+          </div>
+          <div class="card-body">
+            <h3 class="card-title">家族族谱</h3>
+            <p class="card-desc">家族成员关系树形图与生平事迹时间线，支持用户提交事迹和管理员审核。</p>
+          </div>
+          <div class="card-footer">
+            <span class="badge badge-ready">已就绪</span>
+            <span class="card-arrow">&rarr;</span>
+          </div>
+        </a>
+
+        <!-- Placeholder -->
+        <div class="tool-card tool-card-placeholder">
+          <div class="card-icon card-icon-gray">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="10" />
+              <path d="M12 16v-4" />
+              <path d="M12 8h.01" />
+            </svg>
+          </div>
+          <div class="card-body">
+            <h3 class="card-title">更多工具</h3>
+            <p class="card-desc">新工具正在开发中，敬请期待。</p>
+          </div>
+          <div class="card-footer">
+            <span class="badge badge-soon">即将上线</span>
+          </div>
+        </div>
+
+        <!-- Placeholder 2 -->
+        <div class="tool-card tool-card-placeholder">
+          <div class="card-icon card-icon-gray">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+              <circle cx="9" cy="7" r="4" />
+              <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+              <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+            </svg>
+          </div>
+          <div class="card-body">
+            <h3 class="card-title">敬请期待</h3>
+            <p class="card-desc">新工具正在规划中，欢迎提出建议。</p>
+          </div>
+          <div class="card-footer">
+            <span class="badge badge-soon">即将上线</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- Footer -->
+  <footer class="footer">
+    <div class="container">
+      <p class="footer-text">Personal Platform &middot; 个人工具集合 &middot; 持续更新</p>
+    </div>
+  </footer>
+
+  <script src="portal.js"></script>
+</body>
+</html>

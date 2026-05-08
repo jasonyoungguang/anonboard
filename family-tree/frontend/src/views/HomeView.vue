@@ -60,7 +60,7 @@ onUnmounted(() => {
 <template>
   <nav class="navbar">
     <div class="container">
-      <a href="../../" class="back-portal">← 返回门户</a>
+      <a href="/portal/" class="back-portal">← 返回门户</a>
       <span class="navbar-brand">族谱工具</span>
       <div class="navbar-links">
         <router-link to="/submit-story">提交事迹</router-link>
