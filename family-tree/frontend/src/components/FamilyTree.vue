@@ -130,6 +130,28 @@ function buildTree(): TreeNode | null {
     }
   }
 
+  // 通过共享子节点自动推断配偶关系（适用于手动分别添加父母的情况）
+  const allNodes = Array.from(nodeMap.values())
+  for (let i = 0; i < allNodes.length; i++) {
+    for (let j = i + 1; j < allNodes.length; j++) {
+      const a = allNodes[i]
+      const b = allNodes[j]
+      if (a.spouse || b.spouse) continue // 已有配偶关系则不覆盖
+      if (a.gender === b.gender) continue // 同性不推断为配偶
+      const shared = a.children.filter(c => b.children.some(bc => bc.id === c.id))
+      if (shared.length > 0) {
+        a.spouse = b
+        b.spouse = a
+        // 子节点只保留在主节点（被推断为"丈夫"的节点）下
+        if (a.gender === 1) {
+          b.children = b.children.filter(c => !shared.some(sc => sc.id === c.id))
+        } else {
+          a.children = a.children.filter(c => !shared.some(sc => sc.id === c.id))
+        }
+      }
+    }
+  }
+
   // 过滤掉作为配偶重复的根节点（优先保留有子节点的）
   if (roots.length > 1) {
     const spouseOnlyIds = new Set<number>()
