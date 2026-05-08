@@ -223,7 +223,13 @@ function renderTree() {
 
   // 计算树布局
   const root = d3.hierarchy(treeData, d => d.children)
-  const treeLayout = d3.tree<TreeNode>().size([width - 100, (depth + 1) * 150])
+  const treeLayout = d3.tree<TreeNode>()
+    .size([width - 200, (depth + 1) * 150])
+    .separation((a, b) => {
+      const aWide = !!(a.data as TreeNode).spouse
+      const bWide = !!(b.data as TreeNode).spouse
+      return (aWide && bWide) ? 2.5 : (aWide || bWide) ? 2.0 : 1.5
+    })
   treeLayout(root)
 
   // 画连线（跳过虚拟根的连线）
@@ -242,62 +248,76 @@ function renderTree() {
       return `M${sx},${sy} L${sx},${(sy + ty) / 2} L${tx},${(sy + ty) / 2} L${tx},${ty}`
     })
 
-  // 节点高度，有配偶时稍高
-  const calcNodeHeight = (d: TreeNode) => d.spouse ? nodeHeight + 14 : nodeHeight
+  // 辅助函数：绘制一个卡片
+  function drawCard(container: d3.Selection<SVGGElement, any, any, any>, xOffset: number, nodeData: TreeNode, isSpouse: boolean) {
+    const card = container.append('g')
+      .attr('transform', `translate(${xOffset}, 0)`)
+
+    card.append('rect')
+      .attr('x', -nodeWidth / 2)
+      .attr('y', -nodeHeight / 2)
+      .attr('width', nodeWidth)
+      .attr('height', nodeHeight)
+      .attr('rx', 8)
+      .attr('fill', nodeData.gender === 1 ? '#dbeafe' : nodeData.gender === 2 ? '#fce7f3' : '#f1f5f9')
+      .attr('stroke', nodeData.gender === 1 ? '#3b82f6' : nodeData.gender === 2 ? '#ec4899' : '#cbd5e1')
+      .attr('stroke-width', 1.5)
+      .style('cursor', 'pointer')
+      .on('click', (event: MouseEvent) => {
+        handleNodeClick(event, nodeData)
+      })
+
+    card.append('text')
+      .attr('text-anchor', 'middle')
+      .attr('dy', '0.35em')
+      .attr('fill', '#1e293b')
+      .attr('font-size', '13px')
+      .attr('font-weight', '600')
+      .text(nodeData.name)
+  }
 
   // 画节点（跳过虚拟根节点）
-  const node = g.selectAll('g.node')
+  const nodeG = g.selectAll('g.node')
     .data(root.descendants().filter(d => d.data.id !== 0))
     .enter().append('g')
     .attr('transform', d => `translate(${d.x},${d.y})`)
 
-  // 节点背景
-  node.append('rect')
-    .attr('x', -nodeWidth / 2)
-    .attr('y', d => -calcNodeHeight(d.data as TreeNode) / 2)
-    .attr('width', nodeWidth)
-    .attr('height', d => calcNodeHeight(d.data as TreeNode))
-    .attr('rx', 8)
-    .attr('fill', d => {
-      const data = d.data as TreeNode
-      return data.gender === 1 ? '#dbeafe' : data.gender === 2 ? '#fce7f3' : '#f1f5f9'
-    })
-    .attr('stroke', d => {
-      const data = d.data as TreeNode
-      return data.gender === 1 ? '#3b82f6' : data.gender === 2 ? '#ec4899' : '#cbd5e1'
-    })
-    .attr('stroke-width', 1.5)
-    .style('cursor', 'pointer')
-    .on('click', (event: MouseEvent, d: any) => {
-      handleNodeClick(event, d.data as TreeNode)
-    })
+  nodeG.each(function(d) {
+    const data = d.data as TreeNode
+    const el = d3.select(this)
 
-  // 节点名称
-  node.append('text')
-    .attr('text-anchor', 'middle')
-    .attr('dy', '-0.3em')
-    .attr('fill', '#1e293b')
-    .attr('font-size', '13px')
-    .attr('font-weight', '600')
-    .text(d => (d.data as TreeNode).name)
+    if (data.spouse) {
+      // 夫妻并排：两个独立卡片，链接线从中间引出
+      const coupleOffset = 70
 
-  // 配偶信息（与主名显示在同一卡片内）
-  node.append('text')
-    .attr('text-anchor', 'middle')
-    .attr('dy', '1.2em')
-    .attr('fill', '#a16207')
-    .attr('font-size', '11px')
-    .attr('font-weight', '500')
-    .style('cursor', 'pointer')
-    .text(d => {
-      const data = d.data as TreeNode
-      return data.spouse ? data.spouse.name : ''
-    })
-    .on('click', (event: MouseEvent, d: any) => {
-      event.stopPropagation()
-      const spouse = (d.data as TreeNode).spouse
-      if (spouse?.id) handleNodeClick(event, spouse)
-    })
+      // 丈夫卡片（左侧）
+      drawCard(el, -coupleOffset, data, false)
+
+      // 妻子卡片（右侧）
+      drawCard(el, +coupleOffset, data.spouse!, true)
+
+      // 婚姻连接线
+      const innerRight = -coupleOffset + nodeWidth / 2   // 丈夫卡片右边缘
+      const innerLeft  = +coupleOffset - nodeWidth / 2   // 妻子卡片左边缘
+      el.append('line')
+        .attr('x1', innerRight)
+        .attr('y1', 0)
+        .attr('x2', innerLeft)
+        .attr('y2', 0)
+        .attr('stroke', '#eab308')
+        .attr('stroke-width', 2)
+
+      // 婚姻连接线中点的小圆点
+      el.append('circle')
+        .attr('cx', (innerRight + innerLeft) / 2)
+        .attr('cy', 0)
+        .attr('r', 2.5)
+        .attr('fill', '#eab308')
+    } else {
+      // 单身：居中放置
+      drawCard(el, 0, data, false)
+    }
+  })
 }
 
 onMounted(renderTree)
