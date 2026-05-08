@@ -37,7 +37,15 @@ public class FamilyMemberService {
         return memberMapper.updateById(member) > 0;
     }
 
+    @Transactional
     public boolean deleteMember(Long id) {
+        // 删除该成员相关的所有关系
+        LambdaQueryWrapper<FamilyRelationship> relWrapper = new LambdaQueryWrapper<>();
+        relWrapper.eq(FamilyRelationship::getMemberAId, id)
+                  .or()
+                  .eq(FamilyRelationship::getMemberBId, id);
+        relationshipMapper.delete(relWrapper);
+        // 删除成员
         return memberMapper.deleteById(id) > 0;
     }
 

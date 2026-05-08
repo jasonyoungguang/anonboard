@@ -2,7 +2,7 @@
 import { ref, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import * as d3 from 'd3'
-import { addRelative } from '@/api/family'
+import { addRelative, deleteMember } from '@/api/family'
 import type { FamilyMember, FamilyRelationship } from '@/api/family'
 
 const props = defineProps<{
@@ -28,6 +28,29 @@ const relativeType = ref('')
 const relativeLabel = ref('')
 const relativeForm = ref({ name: '', birthYear: null as number | null, deathYear: null as number | null })
 const saving = ref(false)
+const deleting = ref(false)
+const showDeleteConfirm = ref(false)
+
+async function handleDelete() {
+  if (!menuTarget.value) return
+  showContextMenu.value = false
+  showDeleteConfirm.value = true
+}
+
+async function confirmDelete() {
+  if (!menuTarget.value) return
+  deleting.value = true
+  try {
+    await deleteMember(menuTarget.value.id)
+    showDeleteConfirm.value = false
+    menuTarget.value = null
+    emit('dataChanged')
+  } catch (e) {
+    console.error('删除失败:', e)
+  } finally {
+    deleting.value = false
+  }
+}
 
 function handleNodeClick(event: MouseEvent, treeNode: TreeNode) {
   if (!treeNode.id) return
@@ -343,6 +366,27 @@ watch(() => [props.members, props.relationships], renderTree, { deep: true })
         <div class="ctx-menu-divider"></div>
         <button v-if="menuTarget?.gender === 1" class="ctx-menu-item" @click.stop="openAddRelative('wife')">添加妻子</button>
         <button v-if="menuTarget?.gender === 2" class="ctx-menu-item" @click.stop="openAddRelative('husband')">添加丈夫</button>
+        <div class="ctx-menu-divider"></div>
+        <button class="ctx-menu-item ctx-menu-item-danger" @click.stop="handleDelete">删除</button>
+      </div>
+    </div>
+
+    <!-- 删除确认 Modal -->
+    <div v-if="showDeleteConfirm" class="modal-overlay" @click.self="showDeleteConfirm = false">
+      <div class="modal-content" style="max-width: 360px; text-align: center;">
+        <h2 style="margin-bottom: 12px;">确认删除</h2>
+        <p style="color: var(--text-secondary); margin-bottom: 8px;">
+          确定要删除 <strong>{{ menuTarget?.name }}</strong> 吗？
+        </p>
+        <p style="color: var(--danger); font-size: 13px; margin-bottom: 20px;">
+          此操作不可撤销，相关的所有关系也会同步删除。
+        </p>
+        <div class="modal-actions" style="justify-content: center;">
+          <button class="btn btn-secondary" @click="showDeleteConfirm = false">取消</button>
+          <button class="btn btn-danger" :disabled="deleting" @click="confirmDelete">
+            {{ deleting ? '删除中...' : '确认删除' }}
+          </button>
+        </div>
       </div>
     </div>
 
@@ -421,6 +465,14 @@ watch(() => [props.members, props.relationships], renderTree, { deep: true })
   height: 1px;
   background: #e2e8f0;
   margin: 4px 0;
+}
+
+.ctx-menu-item-danger {
+  color: #ef4444;
+}
+
+.ctx-menu-item-danger:hover {
+  background: #fef2f2;
 }
 
 .form-hint {
