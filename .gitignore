@@ -1,0 +1,28 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.iml
+
+# Java / Maven
+**/target/
+*.class
+*.jar
+*.war
+
+# Node / Frontend
+**/node_modules/
+**/dist/
+**/dist-ssr/
+*.tsbuildinfo
+
+# Env
+*.local
+.env
+.env.*
+
+# Logs
+*.log
