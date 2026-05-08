@@ -142,13 +142,17 @@ function buildTree(): TreeNode | null {
       if (shared.length > 0) {
         a.spouse = b
         b.spouse = a
-        // 子节点只保留在主节点（被推断为"丈夫"的节点）下
-        if (a.gender === 1) {
-          b.children = b.children.filter(c => !shared.some(sc => sc.id === c.id))
-        } else {
-          a.children = a.children.filter(c => !shared.some(sc => sc.id === c.id))
-        }
       }
+    }
+  }
+
+  // 清理配偶间共享的子节点，保留在父亲（gender=1）下
+  for (const node of nodeMap.values()) {
+    if (node.spouse && node.gender === 2) {
+      // 女性配偶：移除与丈夫共享的子节点
+      node.children = node.children.filter(c =>
+        !node.spouse!.children.some(sc => sc.id === c.id)
+      )
     }
   }
 
@@ -158,8 +162,7 @@ function buildTree(): TreeNode | null {
     for (const r of roots) {
       const node = nodeMap.get(r.id)
       if (node?.spouse && roots.some(rr => rr.id === node.spouse!.id)) {
-        const hasChildren = node.children && node.children.length > 0
-        if (!hasChildren) spouseOnlyIds.add(r.id)
+        if (node.children.length === 0) spouseOnlyIds.add(r.id)
       }
     }
     if (spouseOnlyIds.size > 0 && spouseOnlyIds.size < roots.length) {
@@ -239,6 +242,9 @@ function renderTree() {
       return `M${sx},${sy} L${sx},${(sy + ty) / 2} L${tx},${(sy + ty) / 2} L${tx},${ty}`
     })
 
+  // 节点高度，有配偶时稍高
+  const calcNodeHeight = (d: TreeNode) => d.spouse ? nodeHeight + 14 : nodeHeight
+
   // 画节点（跳过虚拟根节点）
   const node = g.selectAll('g.node')
     .data(root.descendants().filter(d => d.data.id !== 0))
@@ -248,9 +254,9 @@ function renderTree() {
   // 节点背景
   node.append('rect')
     .attr('x', -nodeWidth / 2)
-    .attr('y', -nodeHeight / 2)
+    .attr('y', d => -calcNodeHeight(d.data as TreeNode) / 2)
     .attr('width', nodeWidth)
-    .attr('height', nodeHeight)
+    .attr('height', d => calcNodeHeight(d.data as TreeNode))
     .attr('rx', 8)
     .attr('fill', d => {
       const data = d.data as TreeNode
@@ -269,65 +275,29 @@ function renderTree() {
   // 节点名称
   node.append('text')
     .attr('text-anchor', 'middle')
-    .attr('dy', '0.35em')
+    .attr('dy', '-0.3em')
     .attr('fill', '#1e293b')
     .attr('font-size', '13px')
     .attr('font-weight', '600')
     .text(d => (d.data as TreeNode).name)
 
-  // 配偶标记
+  // 配偶信息（与主名显示在同一卡片内）
   node.append('text')
     .attr('text-anchor', 'middle')
-    .attr('dy', '1.8em')
-    .attr('fill', '#64748b')
+    .attr('dy', '1.2em')
+    .attr('fill', '#a16207')
     .attr('font-size', '11px')
+    .attr('font-weight', '500')
+    .style('cursor', 'pointer')
     .text(d => {
       const data = d.data as TreeNode
-      return data.spouse ? `配: ${data.spouse.name}` : ''
+      return data.spouse ? data.spouse.name : ''
     })
-
-  // 配偶卡片
-  const spouseNodes = root.descendants().filter(d => d.data.id !== 0 && (d.data as TreeNode).spouse)
-  const spouseG = g.selectAll('g.spouse-node')
-    .data(spouseNodes)
-    .enter().append('g')
-    .attr('class', 'spouse-node')
-    .attr('transform', (d: any) => `translate(${d.x + nodeWidth + 30},${d.y})`)
-
-  // 配偶与成员之间的虚线连线
-  spouseG.append('line')
-    .attr('x1', -30)
-    .attr('y1', 0)
-    .attr('x2', 0)
-    .attr('y2', 0)
-    .attr('stroke', '#94a3b8')
-    .attr('stroke-width', 1.5)
-    .attr('stroke-dasharray', '4,4')
-
-  // 配偶背景
-  spouseG.append('rect')
-    .attr('x', -50)
-    .attr('y', -nodeHeight / 2)
-    .attr('width', 100)
-    .attr('height', nodeHeight)
-    .attr('rx', 8)
-    .attr('fill', '#fefce8')
-    .attr('stroke', '#eab308')
-    .attr('stroke-width', 1.5)
-    .style('cursor', 'pointer')
     .on('click', (event: MouseEvent, d: any) => {
+      event.stopPropagation()
       const spouse = (d.data as TreeNode).spouse
       if (spouse?.id) handleNodeClick(event, spouse)
     })
-
-  // 配偶名称
-  spouseG.append('text')
-    .attr('text-anchor', 'middle')
-    .attr('dy', '0.35em')
-    .attr('fill', '#a16207')
-    .attr('font-size', '12px')
-    .attr('font-weight', '500')
-    .text(d => (d.data as TreeNode).spouse?.name || '')
 }
 
 onMounted(renderTree)
