@@ -309,9 +309,24 @@ function renderTree() {
     return 1990 - d.data.generation * 25
   }
 
-  // 收集所有真实节点年份
+  // 估计配偶的出生年份
+  function estimateSpouseYear(spouseData: TreeNode, mainYear: number): number {
+    if (birthYearMap.has(spouseData.id)) return birthYearMap.get(spouseData.id)!
+    // 无出生年份，用主节点的预估年份
+    return mainYear
+  }
+
+  // 收集所有节点年份（含配偶）
   const visibleNodes = root.descendants().filter(d => d.data.id !== 0)
-  const allYears = visibleNodes.map(d => estimateYear(d))
+  const allYears: number[] = []
+  for (const d of visibleNodes) {
+    const my = estimateYear(d)
+    allYears.push(my)
+    const spouse = (d.data as TreeNode).spouse
+    if (spouse) {
+      allYears.push(estimateSpouseYear(spouse, my))
+    }
+  }
   let minYear = Math.min(...allYears) - 5
   let maxYear = Math.max(...allYears) + 5
   const yearRange = maxYear - minYear
@@ -386,10 +401,10 @@ function renderTree() {
       return `M${sx},${sy} L${sx},${(sy + ty) / 2} L${tx},${(sy + ty) / 2} L${tx},${ty}`
     })
 
-  // 辅助函数：绘制卡片（与之前相同）
-  function drawCard(container: d3.Selection<SVGGElement, any, any, any>, xOffset: number, nodeData: TreeNode, isSpouse: boolean) {
+  // 辅助函数：绘制卡片
+  function drawCard(container: d3.Selection<SVGGElement, any, any, any>, xOffset: number, yOffset: number, nodeData: TreeNode) {
     const card = container.append('g')
-      .attr('transform', `translate(${xOffset}, 0)`)
+      .attr('transform', `translate(${xOffset}, ${yOffset})`)
 
     card.append('rect')
       .attr('x', -nodeWidth / 2)
@@ -436,24 +451,28 @@ function renderTree() {
 
     if (data.spouse) {
       const coupleOffset = 70
-      drawCard(el, -coupleOffset, data, false)
-      drawCard(el, +coupleOffset, data.spouse!, true)
+      const mainYear = estimateYear(d)
+      const spouseYear = estimateSpouseYear(data.spouse, mainYear)
+      const spouseYOffset = yearToY(spouseYear) - yearToY(mainYear)
+
+      drawCard(el, -coupleOffset, 0, data)
+      drawCard(el, +coupleOffset, spouseYOffset, data.spouse!)
 
       const innerRight = -coupleOffset + nodeWidth / 2
       const innerLeft  = +coupleOffset - nodeWidth / 2
       el.append('line')
         .attr('x1', innerRight).attr('y1', 0)
-        .attr('x2', innerLeft).attr('y2', 0)
+        .attr('x2', innerLeft).attr('y2', spouseYOffset)
         .attr('stroke', '#eab308')
         .attr('stroke-width', 2)
 
       el.append('circle')
         .attr('cx', (innerRight + innerLeft) / 2)
-        .attr('cy', 0)
+        .attr('cy', spouseYOffset / 2)
         .attr('r', 2.5)
         .attr('fill', '#eab308')
     } else {
-      drawCard(el, 0, data, false)
+      drawCard(el, 0, 0, data)
     }
   })
 }
