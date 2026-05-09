@@ -57,7 +57,7 @@ export function Navbar() {
           <span className="text-xs text-muted-foreground font-normal ml-1">技术解析</span>
         </button>
         <a
-          href="../../"
+          href="/portal/"
           className="ml-2 p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-secondary transition-all"
           title="返回工具门户"
         >
