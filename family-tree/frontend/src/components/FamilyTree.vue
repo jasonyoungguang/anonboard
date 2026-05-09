@@ -317,8 +317,11 @@ function renderGraph() {
 
   // 预设初始位置：Y 按出生年份，X 用确定性哈希
   const centerX = (width - rulerWidth) / 2 + rulerWidth
+  const initialXMap = new Map<number, number>()
   for (const node of nodes) {
-    node.x = centerX + deterministicX(node.id, 600)
+    const ix = centerX + deterministicX(node.id, 600)
+    node.x = ix
+    initialXMap.set(node.id, ix)
     node.y = yearToY(estimateYearForNode(node))
   }
 
@@ -401,14 +404,16 @@ function renderGraph() {
       .id(d => d.id).distance(80).strength(1.5))
     .force('y', d3.forceY<SimNode>(d => yearToY(estimateYearForNode(d)))
       .strength(1.0))
-    .force('x', d3.forceX<SimNode>(centerX).strength(0.02))
+    .force('x', d3.forceX<SimNode>(d => initialXMap.get(d.id)!).strength(0.1))
     .force('collide', d3.forceCollide<SimNode>(80).strength(1.0))
     .stop()
 
   for (let i = 0; i < 300; i++) { sim.tick() }
   simulation = sim
 
+  // 仿真后锁定位置：Y 强制对齐到年份尺，X 锁定仿真自然收敛位置
   for (const node of nodes) {
+    node.y = yearToY(estimateYearForNode(node))
     node.fx = node.x
     node.fy = node.y
   }
