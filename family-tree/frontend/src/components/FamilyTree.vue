@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import * as d3 from 'd3'
 import { addRelative, deleteMember } from '@/api/family'
@@ -21,12 +21,19 @@ const svgHeight = ref(500)
 const searchQuery = ref('')
 const showSearchList = ref(false)
 const selectedNodeId = ref<number | null>(null)
+const searchBoxRef = ref<HTMLElement>()
 
 const searchCandidates = computed(() => {
   const q = searchQuery.value.trim().toLowerCase()
   if (!q) return props.members
   return props.members.filter(m => m.name.toLowerCase().includes(q))
 })
+
+function handleClickOutside(e: MouseEvent) {
+  if (searchBoxRef.value && !searchBoxRef.value.contains(e.target as Node)) {
+    showSearchList.value = false
+  }
+}
 
 function selectSearchMember(member: FamilyMember) {
   searchQuery.value = member.name
@@ -539,7 +546,13 @@ function renderGraph() {
   zoomBehavior = zoom
 }
 
-onMounted(renderGraph)
+onMounted(() => {
+  renderGraph()
+  document.addEventListener('mousedown', handleClickOutside)
+})
+onUnmounted(() => {
+  document.removeEventListener('mousedown', handleClickOutside)
+})
 // 不使用 deep watch：数据通过 API 返回全新数组引用，shallow 引用变化即可触发重绘
 watch(() => [props.members, props.relationships], () => renderGraph())
 </script>
@@ -548,14 +561,13 @@ watch(() => [props.members, props.relationships], () => renderGraph())
   <div class="family-tree-container">
     <!-- 工具栏 -->
     <div class="graph-toolbar">
-      <div class="search-box">
+      <div ref="searchBoxRef" class="search-box">
         <input
           v-model="searchQuery"
           type="text"
           class="search-input"
           placeholder="搜索姓名..."
           @focus="showSearchList = true"
-          @blur="setTimeout(() => showSearchList = false, 200)"
           @keyup.enter="() => { const c = searchCandidates; if (c.length === 1) selectSearchMember(c[0]) }"
         />
         <button v-if="searchQuery" class="search-clear" @click="clearSearch">&times;</button>
