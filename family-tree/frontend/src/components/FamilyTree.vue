@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, watch, nextTick } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import * as d3 from 'd3'
 import { addRelative, deleteMember } from '@/api/family'
@@ -87,7 +87,7 @@ function exportPNG() {
     a.href = canvas.toDataURL('image/png')
     a.click()
   }
-  img.src = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svgData)))
+  img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgData)
 }
 
 // 管理模式状态
