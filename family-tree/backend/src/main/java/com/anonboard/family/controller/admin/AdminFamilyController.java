@@ -14,6 +14,7 @@ import com.anonboard.family.service.FamilyMemberService;
 import com.anonboard.family.service.FamilyRelationshipService;
 import com.anonboard.family.service.FamilyStoryService;
 import jakarta.validation.Valid;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -28,9 +29,11 @@ public class AdminFamilyController {
     private final FamilyRelationshipService relationshipService;
     private final FamilyStoryService storyService;
 
-    // 简单硬编码管理员账号（可后续迁移到数据库）
-    private static final String ADMIN_USER = "admin";
-    private static final String ADMIN_PASS = "admin123";
+    @Value("${family.admin.username:admin}")
+    private String adminUser;
+
+    @Value("${family.admin.password:admin123}")
+    private String adminPass;
 
     public AdminFamilyController(JwtUtil jwtUtil,
                                  FamilyMemberService memberService,
@@ -44,7 +47,7 @@ public class AdminFamilyController {
 
     @PostMapping("/login")
     public Result<LoginResp> login(@Valid @RequestBody LoginReq req) {
-        if (!ADMIN_USER.equals(req.getUsername()) || !ADMIN_PASS.equals(req.getPassword())) {
+        if (!adminUser.equals(req.getUsername()) || !adminPass.equals(req.getPassword())) {
             return Result.error(401, "用户名或密码错误");
         }
         String token = jwtUtil.generateToken(req.getUsername());
