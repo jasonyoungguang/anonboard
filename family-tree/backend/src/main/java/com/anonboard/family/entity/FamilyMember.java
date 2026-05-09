@@ -33,4 +33,7 @@ public class FamilyMember {
 
     @TableField(fill = FieldFill.INSERT_UPDATE)
     private LocalDateTime updatedAt;
+
+    @TableField("is_deleted")
+    private Boolean isDeleted;
 }

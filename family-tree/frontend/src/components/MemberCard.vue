@@ -16,7 +16,8 @@ function goToDetail() {
 <template>
   <div class="card member-card" @click="goToDetail">
     <div class="member-avatar">
-      {{ member.name.charAt(0) }}
+      <img v-if="member.avatarUrl" :src="member.avatarUrl" class="avatar-img" alt="" />
+      <span v-else>{{ member.name.charAt(0) }}</span>
     </div>
     <div class="member-info">
       <h3>{{ member.name }}</h3>
@@ -28,3 +29,11 @@ function goToDetail() {
     </div>
   </div>
 </template>
+
+<style scoped>
+.avatar-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+</style>

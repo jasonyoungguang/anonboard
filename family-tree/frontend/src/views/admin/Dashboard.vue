@@ -5,19 +5,23 @@ import { useAuthStore } from '@/stores/auth'
 import {
   getMembers, addMember, updateMember, deleteMember,
   getPendingStories, reviewStory,
-  addRelationship, deleteRelationship
+  addRelationship, deleteRelationship,
+  getDeletedMembers, restoreMember, permanentlyDeleteMember,
+  uploadAvatar
 } from '@/api/family'
 import type { FamilyMember, FamilyStory } from '@/api/family'
 
 const router = useRouter()
 const authStore = useAuthStore()
-const activeTab = ref<'members' | 'stories'>('members')
+const activeTab = ref<'members' | 'stories' | 'recycle'>('members')
 
 // Members
 const members = ref<FamilyMember[]>([])
 const showMemberModal = ref(false)
 const editingMember = ref<FamilyMember | null>(null)
 const memberForm = ref({ name: '', gender: 0, birthYear: null as number | null, deathYear: null as number | null, generation: null as number | null, avatarUrl: '', bio: '' })
+const avatarUploading = ref(false)
+const avatarPreview = ref('')
 
 // Stories
 const pendingStories = ref<FamilyStory[]>([])
@@ -30,6 +34,9 @@ const reviewComment = ref('')
 const showRelModal = ref(false)
 const relForm = ref({ memberAId: 0, memberBId: 0, relationType: 'parent-child' })
 const relError = ref('')
+
+// Recycle bin
+const deletedMembers = ref<FamilyMember[]>([])
 
 async function loadMembers() {
   try {
@@ -49,9 +56,19 @@ async function loadPendingStories() {
   }
 }
 
+async function loadDeletedMembers() {
+  try {
+    const res = await getDeletedMembers()
+    deletedMembers.value = res.data.data || []
+  } catch (e) {
+    console.error(e)
+  }
+}
+
 function openAddMember() {
   editingMember.value = null
   memberForm.value = { name: '', gender: 0, birthYear: null, deathYear: null, generation: null, avatarUrl: '', bio: '' }
+  avatarPreview.value = ''
   showMemberModal.value = true
 }
 
@@ -66,7 +83,27 @@ function openEditMember(m: FamilyMember) {
     avatarUrl: m.avatarUrl || '',
     bio: m.bio || ''
   }
+  avatarPreview.value = m.avatarUrl || ''
   showMemberModal.value = true
+}
+
+async function handleAvatarChange(e: Event) {
+  const file = (e.target as HTMLInputElement).files?.[0]
+  if (!file) return
+  avatarUploading.value = true
+  try {
+    const res = await uploadAvatar(file)
+    const url = res.data.data?.url
+    if (url) {
+      memberForm.value.avatarUrl = url
+      avatarPreview.value = url
+    }
+  } catch (err) {
+    console.error('头像上传失败:', err)
+    alert('头像上传失败')
+  } finally {
+    avatarUploading.value = false
+  }
 }
 
 async function saveMember() {
@@ -84,10 +121,30 @@ async function saveMember() {
 }
 
 async function handleDeleteMember(id: number) {
-  if (!confirm('确定删除此成员？')) return
+  if (!confirm('确定移除此成员？成员将被移入回收站。')) return
   try {
     await deleteMember(id)
     await loadMembers()
+  } catch (e) {
+    console.error(e)
+  }
+}
+
+async function handleRestoreMember(id: number) {
+  try {
+    await restoreMember(id)
+    await loadDeletedMembers()
+    await loadMembers()
+  } catch (e) {
+    console.error(e)
+  }
+}
+
+async function handlePermanentDelete(id: number) {
+  if (!confirm('此操作不可撤销，确定永久删除此成员？')) return
+  try {
+    await permanentlyDeleteMember(id)
+    await loadDeletedMembers()
   } catch (e) {
     console.error(e)
   }
@@ -126,8 +183,9 @@ async function saveRel() {
     await addRelationship(relForm.value)
     showRelModal.value = false
     relError.value = ''
-  } catch (e) {
-    relError.value = '添加关系失败'
+  } catch (e: any) {
+    const msg = e?.response?.data?.message || '添加关系失败'
+    relError.value = msg
   }
 }
 
@@ -147,6 +205,7 @@ onMounted(() => {
   }
   loadMembers()
   loadPendingStories()
+  loadDeletedMembers()
 })
 </script>
 
@@ -174,6 +233,9 @@ onMounted(() => {
       </button>
       <button :class="['tab-btn', { active: activeTab === 'stories' }]" @click="activeTab = 'stories'">
         事迹审核 ({{ pendingStories.length }})
+      </button>
+      <button :class="['tab-btn', { active: activeTab === 'recycle' }]" @click="activeTab = 'recycle'; loadDeletedMembers()">
+        回收站 ({{ deletedMembers.length }})
       </button>
     </div>
 
@@ -211,6 +273,39 @@ onMounted(() => {
         <div v-else class="empty-state">
           <h3>暂无成员</h3>
           <p>点击"添加成员"开始构建族谱</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- 回收站 -->
+    <div v-if="activeTab === 'recycle'">
+      <div class="card">
+        <table class="table" v-if="deletedMembers.length > 0">
+          <thead>
+            <tr>
+              <th>姓名</th>
+              <th>性别</th>
+              <th>生卒年</th>
+              <th>辈分</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="m in deletedMembers" :key="m.id">
+              <td><strong>{{ m.name }}</strong></td>
+              <td>{{ m.gender === 1 ? '男' : m.gender === 2 ? '女' : '未知' }}</td>
+              <td>{{ m.birthYear || '?' }} - {{ m.deathYear || '?' }}</td>
+              <td>{{ m.generation != null ? '第' + m.generation + '代' : '?' }}</td>
+              <td style="display:flex;gap:4px">
+                <button class="btn btn-primary" style="padding:4px 8px;font-size:12px" @click="handleRestoreMember(m.id)">恢复</button>
+                <button class="btn btn-danger" style="padding:4px 8px;font-size:12px" @click="handlePermanentDelete(m.id)">永久删除</button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        <div v-else class="empty-state">
+          <h3>回收站为空</h3>
+          <p>删除的成员会先移入回收站</p>
         </div>
       </div>
     </div>
@@ -265,6 +360,18 @@ onMounted(() => {
         <div class="form-group">
           <label>辈分</label>
           <input v-model.number="memberForm.generation" type="number" class="form-input" placeholder="数字越小辈分越高">
+        </div>
+        <div class="form-group">
+          <label>头像</label>
+          <div style="display:flex;align-items:center;gap:12px">
+            <div v-if="avatarPreview" style="width:60px;height:60px;border-radius:50%;overflow:hidden;border:1px solid #e2e8f0;flex-shrink:0">
+              <img :src="avatarPreview" style="width:100%;height:100%;object-fit:cover" alt="头像预览" />
+            </div>
+            <div>
+              <input type="file" accept="image/*" @change="handleAvatarChange" style="font-size:13px" />
+              <p v-if="avatarUploading" style="font-size:12px;color:var(--text-secondary);margin-top:4px">上传中...</p>
+            </div>
+          </div>
         </div>
         <div class="form-group">
           <label>简介</label>

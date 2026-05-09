@@ -2,6 +2,7 @@ package com.anonboard.family.controller;
 
 import com.anonboard.family.dto.response.FamilyTreeResp;
 import com.anonboard.family.dto.response.MemberDetailResp;
+import com.anonboard.family.dto.response.StatsResp;
 import com.anonboard.family.entity.FamilyMember;
 import com.anonboard.family.entity.FamilyRelationship;
 import com.anonboard.family.entity.FamilyStory;
@@ -33,7 +34,20 @@ public class FamilyMemberController {
     public Result<FamilyTreeResp> getFamilyTree() {
         FamilyTreeResp resp = new FamilyTreeResp();
         resp.setMembers(memberService.getAllMembers());
-        resp.setRelationships(relationshipService.getAllRelationships());
+        resp.setRelationships(relationshipService.getAllActiveRelationships());
+        return Result.success(resp);
+    }
+
+    @GetMapping("/stats")
+    public Result<StatsResp> getStats() {
+        FamilyMemberService.StatsInfo info = memberService.getStats();
+        StatsResp resp = new StatsResp();
+        resp.setTotalMembers(info.totalMembers);
+        resp.setMaleCount(info.maleCount);
+        resp.setFemaleCount(info.femaleCount);
+        resp.setUnknownGenderCount(info.unknownGenderCount);
+        resp.setMinGeneration(info.minGeneration);
+        resp.setMaxGeneration(info.maxGeneration);
         return Result.success(resp);
     }
 

@@ -181,7 +181,8 @@ watch(() => route.params.id, loadData)
       <div class="page-header">
         <div class="member-card" style="cursor:default">
           <div class="member-avatar">
-            {{ member.name.charAt(0) }}
+            <img v-if="member.avatarUrl" :src="member.avatarUrl" class="avatar-img" alt="" />
+            <span v-else>{{ member.name.charAt(0) }}</span>
           </div>
           <div class="member-info">
             <h1 style="font-size:24px">{{ member.name }}</h1>
@@ -387,5 +388,12 @@ watch(() => route.params.id, loadData)
 
 textarea.form-input {
   resize: vertical;
+}
+
+.avatar-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 50%;
 }
 </style>

@@ -10,6 +10,7 @@ import com.anonboard.family.dto.response.LoginResp;
 import com.anonboard.family.entity.FamilyMember;
 import com.anonboard.family.entity.FamilyRelationship;
 import com.anonboard.family.entity.FamilyStory;
+import com.anonboard.family.service.FamilyGraphValidator;
 import com.anonboard.family.service.FamilyMemberService;
 import com.anonboard.family.service.FamilyRelationshipService;
 import com.anonboard.family.service.FamilyStoryService;
@@ -28,6 +29,7 @@ public class AdminFamilyController {
     private final FamilyMemberService memberService;
     private final FamilyRelationshipService relationshipService;
     private final FamilyStoryService storyService;
+    private final FamilyGraphValidator graphValidator;
 
     @Value("${family.admin.username:admin}")
     private String adminUser;
@@ -38,11 +40,13 @@ public class AdminFamilyController {
     public AdminFamilyController(JwtUtil jwtUtil,
                                  FamilyMemberService memberService,
                                  FamilyRelationshipService relationshipService,
-                                 FamilyStoryService storyService) {
+                                 FamilyStoryService storyService,
+                                 FamilyGraphValidator graphValidator) {
         this.jwtUtil = jwtUtil;
         this.memberService = memberService;
         this.relationshipService = relationshipService;
         this.storyService = storyService;
+        this.graphValidator = graphValidator;
     }
 
     @PostMapping("/login")
@@ -102,12 +106,48 @@ public class AdminFamilyController {
         return Result.error(500, "删除成员失败");
     }
 
+    // ---- 回收站 ----
+
+    @GetMapping("/members/deleted")
+    public Result<List<FamilyMember>> getDeletedMembers() {
+        return Result.success(memberService.getDeletedMembers());
+    }
+
+    @PutMapping("/member/{id}/restore")
+    public Result<Void> restoreMember(@PathVariable Long id) {
+        if (memberService.restoreMember(id)) {
+            return Result.success();
+        }
+        return Result.error(500, "恢复成员失败");
+    }
+
+    @DeleteMapping("/member/{id}/permanent")
+    public Result<Void> permanentlyDeleteMember(@PathVariable Long id) {
+        if (memberService.hardDeleteMember(id)) {
+            return Result.success();
+        }
+        return Result.error(500, "永久删除成员失败");
+    }
+
+    // ---- 关系 ----
+
     @PostMapping("/relationship")
     public Result<Void> addRelationship(@RequestBody Map<String, Object> params) {
+        Long memberAId = Long.valueOf(params.get("memberAId").toString());
+        Long memberBId = Long.valueOf(params.get("memberBId").toString());
+        String relationType = params.get("relationType").toString();
+
+        // 循环检测：防止亲子关系形成祖先环
+        if ("parent-child".equals(relationType)) {
+            if (graphValidator.hasAncestorCycle(memberAId, memberBId)) {
+                return Result.error(400, "无法添加此亲子关系：会形成循环引用");
+            }
+        }
+
         FamilyRelationship relationship = new FamilyRelationship();
-        relationship.setMemberAId(Long.valueOf(params.get("memberAId").toString()));
-        relationship.setMemberBId(Long.valueOf(params.get("memberBId").toString()));
-        relationship.setRelationType(params.get("relationType").toString());
+        relationship.setMemberAId(memberAId);
+        relationship.setMemberBId(memberBId);
+        relationship.setRelationType(relationType);
 
         if (relationshipService.addRelationship(relationship)) {
             return Result.success();
@@ -123,6 +163,8 @@ public class AdminFamilyController {
         return Result.error(500, "删除关系失败");
     }
 
+    // ---- 事迹审核 ----
+
     @GetMapping("/stories/pending")
     public Result<List<FamilyStory>> getPendingStories() {
         return Result.success(storyService.getPendingStories());
@@ -137,6 +179,8 @@ public class AdminFamilyController {
         }
         return Result.error(500, "审核操作失败");
     }
+
+    // ---- 添加亲属 ----
 
     @PostMapping("/member/{id}/relative")
     public Result<Void> addRelative(@PathVariable Long id, @Valid @RequestBody AddRelativeReq req) {

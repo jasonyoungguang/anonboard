@@ -124,3 +124,39 @@ export function addRelative(memberId: number, data: {
 }) {
   return http.post<{ code: number }>(`/admin/family/member/${memberId}/relative`, data)
 }
+
+// 统计
+export interface FamilyStats {
+  totalMembers: number
+  maleCount: number
+  femaleCount: number
+  unknownGenderCount: number
+  minGeneration: number | null
+  maxGeneration: number | null
+}
+
+export function getStats() {
+  return http.get<{ code: number; data: FamilyStats }>('/family/stats')
+}
+
+// 头像上传
+export function uploadAvatar(file: File) {
+  const formData = new FormData()
+  formData.append('file', file)
+  return http.post<{ code: number; data: { url: string } }>('/admin/upload/avatar', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' }
+  })
+}
+
+// 回收站
+export function getDeletedMembers() {
+  return http.get<{ code: number; data: FamilyMember[] }>('/admin/family/members/deleted')
+}
+
+export function restoreMember(id: number) {
+  return http.put<{ code: number }>(`/admin/family/member/${id}/restore`)
+}
+
+export function permanentlyDeleteMember(id: number) {
+  return http.delete<{ code: number }>(`/admin/family/member/${id}/permanent`)
+}
