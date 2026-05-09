@@ -278,22 +278,54 @@ function renderGraph() {
   // ---- 主图层（可缩放） ----
   const g = svg.append('g').attr('transform', `translate(${rulerWidth - 5}, 0)`)
 
-  // 连线：spouse（先画，在底层）
+  // 辅助：生成 L 形折线路径
+  function polyPath(d: SimEdge): string {
+    const sx = typeof d.source === 'number' ? 0 : d.source.x!
+    const sy = typeof d.source === 'number' ? 0 : d.source.y!
+    const tx = typeof d.target === 'number' ? 0 : d.target.x!
+    const ty = typeof d.target === 'number' ? 0 : d.target.y!
+    const midY = (sy + ty) / 2
+    return `M${sx},${sy} L${sx},${midY} L${tx},${midY} L${tx},${ty}`
+  }
+
+  // ---- 力导向静默计算（无动画） ----
+  const sim = d3.forceSimulation<SimNode>(nodes)
+    .force('parent-link', d3.forceLink<SimNode, SimEdge>(parentChildEdges)
+      .id(d => d.id).distance(100).strength(0.4))
+    .force('spouse-link', d3.forceLink<SimNode, SimEdge>(spouseEdges)
+      .id(d => d.id).distance(80).strength(1.5))
+    .force('y', d3.forceY<SimNode>(d => yearToY(estimateYearForNode(d)))
+      .strength(1.0))
+    .force('x', d3.forceX<SimNode>(centerX).strength(0.02))
+    .force('collide', d3.forceCollide<SimNode>(80).strength(1.0))
+    .stop()
+
+  // 静默迭代 300 次使布局收敛
+  for (let i = 0; i < 300; i++) {
+    sim.tick()
+  }
+  simulation = sim
+
+  // 收敛后锁定所有节点位置
+  for (const node of nodes) {
+    node.fx = node.x
+    node.fy = node.y
+  }
+
+  // ---- 一次性渲染（顺序：线 → 节点） ----
+  // 配偶连线
   if (spouseEdges.length > 0) {
     const spouseLineG = g.append('g').attr('class', 'spouse-links')
 
-    spouseLineG.selectAll('line')
+    spouseLineG.selectAll('path')
       .data(spouseEdges)
-      .enter().append('line')
+      .enter().append('path')
+      .attr('fill', 'none')
       .attr('stroke', '#eab308')
       .attr('stroke-width', 2)
       .attr('stroke-dasharray', '6,3')
-      .attr('x1', d => (typeof d.source === 'number' ? 0 : d.source.x!))
-      .attr('y1', d => (typeof d.source === 'number' ? 0 : d.source.y!))
-      .attr('x2', d => (typeof d.target === 'number' ? 0 : d.target.x!))
-      .attr('y2', d => (typeof d.target === 'number' ? 0 : d.target.y!))
+      .attr('d', polyPath)
 
-    // 配偶连线中点圆点
     spouseLineG.selectAll('circle')
       .data(spouseEdges)
       .enter().append('circle')
@@ -311,23 +343,21 @@ function renderGraph() {
       })
   }
 
-  // 连线：parent-child
+  // 父子连线
   if (parentChildEdges.length > 0) {
     const pcLineG = g.append('g').attr('class', 'parent-child-links')
 
-    pcLineG.selectAll('line')
+    pcLineG.selectAll('path')
       .data(parentChildEdges)
-      .enter().append('line')
+      .enter().append('path')
+      .attr('fill', 'none')
       .attr('stroke', '#94a3b8')
       .attr('stroke-width', 1.5)
       .attr('stroke-opacity', 0.6)
-      .attr('x1', d => (typeof d.source === 'number' ? 0 : d.source.x!))
-      .attr('y1', d => (typeof d.source === 'number' ? 0 : d.source.y!))
-      .attr('x2', d => (typeof d.target === 'number' ? 0 : d.target.x!))
-      .attr('y2', d => (typeof d.target === 'number' ? 0 : d.target.y!))
+      .attr('d', polyPath)
   }
 
-  // ---- 节点卡片 ----
+  // 节点卡片
   const nodeG = g.selectAll('g.member-node')
     .data(nodes)
     .enter().append('g')
@@ -358,7 +388,6 @@ function renderGraph() {
       .attr('font-weight', '600')
       .text(d.name)
 
-    // 出生年份
     const yearToShow = d.birthYear ?? estimateYearForNode(d)
     if (yearToShow != null) {
       card.append('text')
@@ -370,49 +399,6 @@ function renderGraph() {
     }
   })
 
-  // ---- Force Simulation ----
-  simulation = d3.forceSimulation<SimNode>(nodes)
-    .force('parent-link', d3.forceLink<SimNode, SimEdge>(parentChildEdges)
-      .id(d => d.id).distance(100).strength(0.4))
-    .force('spouse-link', d3.forceLink<SimNode, SimEdge>(spouseEdges)
-      .id(d => d.id).distance(80).strength(1.5))
-    .force('y', d3.forceY<SimNode>(d => yearToY(estimateYearForNode(d)))
-      .strength(1.0))
-    .force('x', d3.forceX<SimNode>(centerX).strength(0.02))
-    .force('collide', d3.forceCollide<SimNode>(80).strength(1.0))
-    .alphaDecay(0.02)
-    .on('tick', () => {
-      // 更新配偶连线
-      g.selectAll('.spouse-links line')
-        .attr('x1', d => (typeof d.source === 'number' ? 0 : d.source.x!))
-        .attr('y1', d => (typeof d.source === 'number' ? 0 : d.source.y!))
-        .attr('x2', d => (typeof d.target === 'number' ? 0 : d.target.x!))
-        .attr('y2', d => (typeof d.target === 'number' ? 0 : d.target.y!))
-
-      g.selectAll('.spouse-links circle')
-        .attr('cx', d => {
-          const sx = typeof d.source === 'number' ? 0 : d.source.x!
-          const tx = typeof d.target === 'number' ? 0 : d.target.x!
-          return (sx + tx) / 2
-        })
-        .attr('cy', d => {
-          const sy = typeof d.source === 'number' ? 0 : d.source.y!
-          const ty = typeof d.target === 'number' ? 0 : d.target.y!
-          return (sy + ty) / 2
-        })
-
-      // 更新父子连线
-      g.selectAll('.parent-child-links line')
-        .attr('x1', d => (typeof d.source === 'number' ? 0 : d.source.x!))
-        .attr('y1', d => (typeof d.source === 'number' ? 0 : d.source.y!))
-        .attr('x2', d => (typeof d.target === 'number' ? 0 : d.target.x!))
-        .attr('y2', d => (typeof d.target === 'number' ? 0 : d.target.y!))
-
-      // 更新节点位置
-      g.selectAll('g.member-node')
-        .attr('transform', d => `translate(${d.x},${d.y})`)
-    })
-
   // Zoom/Pan
   const zoom = d3.zoom<SVGSVGElement, unknown>()
     .scaleExtent([0.3, 3])
@@ -421,25 +407,6 @@ function renderGraph() {
     })
 
   svg.call(zoom)
-
-  // 节点拖拽
-  const drag = d3.drag<SVGGElement, SimNode>()
-    .on('start', (event, d) => {
-      if (!event.active && simulation) simulation.alphaTarget(0.3).restart()
-      d.fx = d.x
-      d.fy = d.y
-    })
-    .on('drag', (event, d) => {
-      d.fx = event.x
-      d.fy = event.y
-    })
-    .on('end', (event, d) => {
-      if (!event.active && simulation) simulation.alphaTarget(0)
-      d.fx = null
-      d.fy = null
-    })
-
-  g.selectAll<SVGGElement, SimNode>('g.member-node').call(drag)
 }
 
 onMounted(renderGraph)
