@@ -18,7 +18,7 @@ const svgRef = ref<SVGSVGElement>()
 const svgHeight = ref(500)
 
 // 管理模式状态
-const menuTarget = ref<TreeNode | null>(null)
+const menuTarget = ref<SimNode | null>(null)
 const showContextMenu = ref(false)
 const menuX = ref(0)
 const menuY = ref(0)
@@ -52,13 +52,13 @@ async function confirmDelete() {
   }
 }
 
-function handleNodeClick(event: MouseEvent, treeNode: TreeNode) {
-  if (!treeNode.id) return
+function handleNodeClick(event: MouseEvent, node: SimNode) {
+  if (!node.id) return
   if (!props.isAdmin) {
-    router.push(`/member/${treeNode.id}`)
+    router.push(`/member/${node.id}`)
     return
   }
-  menuTarget.value = treeNode
+  menuTarget.value = node
   menuX.value = event.clientX
   menuY.value = event.clientY
   showContextMenu.value = true
@@ -99,195 +99,75 @@ async function saveRelative() {
   }
 }
 
-interface TreeNode {
+// ---- 关系网数据模型 ----
+interface SimNode extends d3.SimulationNodeDatum {
   id: number
   name: string
-  generation: number
   gender: number
-  children: TreeNode[]
-  spouse?: TreeNode
+  generation: number
+  birthYear: number | null
+  deathYear: number | null
 }
 
-function buildTree(): TreeNode | null {
-  if (props.members.length === 0) return null
+interface SimEdge {
+  source: number | SimNode
+  target: number | SimNode
+  type: 'parent-child' | 'spouse'
+}
 
-  // 构建节点映射
-  const nodeMap = new Map<number, TreeNode>()
+function buildGraph() {
+  const nodeMap = new Map<number, SimNode>()
+  const nodes: SimNode[] = []
+
   for (const m of props.members) {
-    nodeMap.set(m.id, {
+    const node: SimNode = {
       id: m.id,
       name: m.name,
-      generation: m.generation ?? 0,
       gender: m.gender,
-      children: []
-    })
+      generation: m.generation ?? 0,
+      birthYear: m.birthYear ?? null,
+      deathYear: m.deathYear ?? null
+    }
+    nodes.push(node)
+    nodeMap.set(m.id, node)
   }
 
-  // 通过 parent-child 关系链接，同时记录哪些节点是子女
-  const childSet = new Set<number>()
+  const parentChildEdges: SimEdge[] = []
+  const spouseEdges: SimEdge[] = []
+
   for (const rel of props.relationships) {
+    const source = nodeMap.get(rel.memberAId)
+    const target = nodeMap.get(rel.memberBId)
+    if (!source || !target) continue
+
     if (rel.relationType === 'parent-child') {
-      // memberAId 是父母, memberBId 是子女
-      const parent = nodeMap.get(rel.memberAId)
-      const child = nodeMap.get(rel.memberBId)
-      if (parent && child) {
-        parent.children.push(child)
-        childSet.add(child.id)
-      }
+      parentChildEdges.push({ source, target, type: 'parent-child' })
+    } else if (rel.relationType === 'spouse') {
+      spouseEdges.push({ source, target, type: 'spouse' })
     }
   }
 
-  // 根节点 = 没有父节点的节点
-  let roots = Array.from(nodeMap.values()).filter(n => !childSet.has(n.id))
-  if (roots.length === 0) return null
-
-  // 添加配偶信息
-  for (const rel of props.relationships) {
-    if (rel.relationType === 'spouse') {
-      const a = nodeMap.get(rel.memberAId)
-      const b = nodeMap.get(rel.memberBId)
-      if (a) a.spouse = b || undefined
-      if (b) b.spouse = a || undefined
-    }
-  }
-
-  // 通过共享子节点自动推断配偶关系（适用于手动分别添加父母的情况）
-  const allNodes = Array.from(nodeMap.values())
-  for (let i = 0; i < allNodes.length; i++) {
-    for (let j = i + 1; j < allNodes.length; j++) {
-      const a = allNodes[i]
-      const b = allNodes[j]
-      if (a.spouse || b.spouse) continue // 已有配偶关系则不覆盖
-      if (a.gender === b.gender) continue // 同性不推断为配偶
-      const shared = a.children.filter(c => b.children.some(bc => bc.id === c.id))
-      if (shared.length > 0) {
-        a.spouse = b
-        b.spouse = a
-      }
-    }
-  }
-
-  // 清理配偶间共享的子节点，保留在父亲（gender=1）下
-  for (const node of nodeMap.values()) {
-    if (node.spouse && node.gender === 2) {
-      // 女性配偶：移除与丈夫共享的子节点
-      node.children = node.children.filter(c =>
-        !node.spouse!.children.some(sc => sc.id === c.id)
-      )
-    }
-  }
-
-  // 如果配偶双方都是根节点，合并所有子节点到一方并移除另一方
-  if (roots.length > 1) {
-    const spouseRemoval = new Set<number>()
-    const processed = new Set<number>()
-
-    for (const r of roots) {
-      if (processed.has(r.id)) continue
-      const node = nodeMap.get(r.id)
-      if (!node) continue
-
-      // 找到也在 roots 中的配偶
-      const spouseRoot = roots.find(rr => rr.id === node.spouse?.id && !processed.has(rr.id))
-      if (!spouseRoot) {
-        processed.add(r.id)
-        continue
-      }
-
-      const spouseNode = nodeMap.get(spouseRoot.id)
-      if (!spouseNode) { processed.add(r.id); continue }
-
-      // 选择有子节点的作为主根（优先男性）
-      const primary = node.gender === 1 ? node : spouseNode
-      const secondary = node.gender === 1 ? spouseNode : node
-      processed.add(primary.id)
-      processed.add(secondary.id)
-
-      // 将次要方独有的子节点合并到主根
-      for (const child of secondary.children) {
-        if (!primary.children.some(c => c.id === child.id)) {
-          primary.children.push(child)
-        }
-      }
-      secondary.children = []
-      spouseRemoval.add(secondary.id)
-    }
-
-    if (spouseRemoval.size > 0) {
-      roots = roots.filter(r => !spouseRemoval.has(r.id))
-    }
-  }
-
-  // 过滤掉作为配偶重复的根节点（优先保留有子节点的）
-  if (roots.length > 1) {
-    const spouseOnlyIds = new Set<number>()
-    for (const r of roots) {
-      const node = nodeMap.get(r.id)
-      if (node?.spouse && roots.some(rr => rr.id === node.spouse!.id)) {
-        if (node.children.length === 0) spouseOnlyIds.add(r.id)
-      }
-    }
-    if (spouseOnlyIds.size > 0 && spouseOnlyIds.size < roots.length) {
-      roots = roots.filter(r => !spouseOnlyIds.has(r.id))
-    }
-  }
-
-  // 移除配偶已在树中但不在根中的孤立配偶根（避免双重显示）
-  if (roots.length > 1) {
-    // 收集所有根及其子孙链中的节点 ID
-    const reachableIds = new Set<number>()
-    for (const r of roots) {
-      const node = nodeMap.get(r.id)
-      if (!node) continue
-      reachableIds.add(r.id)
-      const stack = [...node.children]
-      while (stack.length > 0) {
-        const n = stack.pop()!
-        reachableIds.add(n.id)
-        stack.push(...n.children)
-      }
-    }
-    roots = roots.filter(r => {
-      const node = nodeMap.get(r.id)
-      if (!node?.spouse) return true
-      // 配偶也在 roots 中 → 留给配偶合并逻辑
-      if (roots.some(rr => rr.id === node.spouse!.id)) return true
-      // 配偶已在树中（reachableIds）→ 此根仅作配偶卡片，不作为独立根
-      if (reachableIds.has(node.spouse!.id)) return false
-      // 配偶不在 reachableIds 中 → 说明配偶孤立或尚未链接，保留
-      return true
-    })
-  }
-
-  if (roots.length === 1) return nodeMap.get(roots[0].id) || null
-
-  // 多个根节点：创建虚拟根节点聚合所有分支
-  const minRootGen = Math.min(...roots.map(r => r.generation))
-  const virtualRoot: TreeNode = {
-    id: 0,
-    name: '',
-    generation: minRootGen - 1,
-    gender: 0,
-    children: []
-  }
-  for (const r of roots) {
-    const node = nodeMap.get(r.id)
-    if (node) virtualRoot.children.push(node)
-  }
-  return virtualRoot
+  return { nodes, parentChildEdges, spouseEdges, nodeMap }
 }
 
-function renderTree() {
+// ---- 渲染 ----
+let simulation: d3.Simulation<SimNode, SimEdge> | null = null
+
+function renderGraph() {
   if (!svgRef.value) return
+
+  // 停止旧的 simulation
+  if (simulation) { simulation.stop(); simulation = null }
 
   const svg = d3.select(svgRef.value)
   svg.selectAll('*').remove()
 
-  const treeData = buildTree()
-  if (!treeData) {
+  const graphData = buildGraph()
+  const { nodes, parentChildEdges, spouseEdges, nodeMap } = graphData
+
+  if (nodes.length === 0) {
     svg.append('text')
-      .attr('x', 300)
-      .attr('y', 100)
+      .attr('x', 300).attr('y', 100)
       .attr('text-anchor', 'middle')
       .attr('fill', '#64748b')
       .text('暂无家族数据')
@@ -306,53 +186,39 @@ function renderTree() {
     if (m.birthYear != null) birthYearMap.set(m.id, m.birthYear)
   }
 
-  // ---- 用 D3 计算 X 布局 ----
-  const root = d3.hierarchy(treeData, d => d.children)
-  const treeLayout = d3.tree<TreeNode>()
-    .size([width - 200, 100]) // Y 会被覆盖，这里仅要 X
-    .separation((a, b) => {
-      const aWide = !!(a.data as TreeNode).spouse
-      const bWide = !!(b.data as TreeNode).spouse
-      return (aWide && bWide) ? 2.5 : (aWide || bWide) ? 2.0 : 1.5
-    })
-  treeLayout(root)
+  // ---- 年份推断（图遍历版本） ----
+  const estimateCache = new Map<number, number>()
 
-  // ---- 推断缺失的出生年份（从上到下） ----
-  function estimateYear(d: d3.HierarchyNode<TreeNode>): number {
-    const id = d.data.id
-    if (birthYearMap.has(id)) return birthYearMap.get(id)!
+  function estimateYearForNode(node: SimNode): number {
+    if (estimateCache.has(node.id)) return estimateCache.get(node.id)!
+    if (birthYearMap.has(node.id)) {
+      estimateCache.set(node.id, birthYearMap.get(node.id)!)
+      return birthYearMap.get(node.id)!
+    }
 
     let minChildYear = Infinity
-    if (d.children) {
-      for (const child of d.children) {
-        const cy = estimateYear(child)
-        if (cy < minChildYear) minChildYear = cy
+    for (const edge of parentChildEdges) {
+      const sourceId = typeof edge.source === 'number' ? edge.source : edge.source.id
+      if (sourceId === node.id) {
+        const child = typeof edge.target === 'number' ? nodeMap.get(edge.target) : edge.target
+        if (child) {
+          const cy = estimateYearForNode(child)
+          if (cy < minChildYear) minChildYear = cy
+        }
       }
     }
-    if (minChildYear < Infinity) return minChildYear - 25
-
-    // 无子节点、无出生年份：按辈分推算
-    return 1990 - d.data.generation * 25
-  }
-
-  // 估计配偶的出生年份
-  function estimateSpouseYear(spouseData: TreeNode, _mainYear: number): number {
-    if (birthYearMap.has(spouseData.id)) return birthYearMap.get(spouseData.id)!
-    // 无出生年份，用辈分推算
-    return 1990 - spouseData.generation * 25
-  }
-
-  // 收集所有节点年份（含配偶）
-  const visibleNodes = root.descendants().filter(d => d.data.id !== 0)
-  const allYears: number[] = []
-  for (const d of visibleNodes) {
-    const my = estimateYear(d)
-    allYears.push(my)
-    const spouse = (d.data as TreeNode).spouse
-    if (spouse) {
-      allYears.push(estimateSpouseYear(spouse, my))
+    if (minChildYear < Infinity) {
+      const result = minChildYear - 25
+      estimateCache.set(node.id, result)
+      return result
     }
+    const result = 1990 - node.generation * 25
+    estimateCache.set(node.id, result)
+    return result
   }
+
+  // 收集所有年份确定范围
+  const allYears = nodes.map(n => estimateYearForNode(n))
   let minYear = Math.min(...allYears) - 5
   let maxYear = Math.max(...allYears) + 5
   const yearRange = maxYear - minYear
@@ -366,20 +232,22 @@ function renderTree() {
     return rulerStartY + (maxYear - year) * yearScale
   }
 
-  // 覆写 Y 坐标
-  visibleNodes.forEach(d => { d.y = yearToY(estimateYear(d)) })
+  // 预设初始位置：Y 按出生年份，X 随机散开
+  const centerX = (width - rulerWidth) / 2 + rulerWidth
+  for (const node of nodes) {
+    node.x = centerX + (Math.random() - 0.5) * 300
+    node.y = yearToY(estimateYearForNode(node))
+  }
 
   // ---- 年份尺子 ----
   const rulerG = svg.append('g').attr('transform', `translate(${rulerWidth - 15}, 0)`)
 
-  // 主线
   rulerG.append('line')
     .attr('x1', 0).attr('y1', yearToY(maxYear + 5))
     .attr('x2', 0).attr('y2', yearToY(minYear - 5))
     .attr('stroke', '#cbd5e1')
     .attr('stroke-width', 1.5)
 
-  // 刻度与标签，自动选择合适步长
   const tickStep = yearRange > 100 ? 20 : yearRange > 50 ? 10 : 5
   for (let y = Math.ceil(minYear / tickStep) * tickStep; y <= maxYear; y += tickStep) {
     const py = yearToY(y)
@@ -390,7 +258,6 @@ function renderTree() {
       .attr('stroke', '#94a3b8')
       .attr('stroke-width', isMajor ? 1.5 : 0.8)
 
-    // 水平参考线
     svg.append('line')
       .attr('x1', rulerWidth).attr('y1', py)
       .attr('x2', width).attr('y2', py)
@@ -408,29 +275,68 @@ function renderTree() {
     }
   }
 
-  // ---- 树连线与节点 ----
+  // ---- 主图层（可缩放） ----
   const g = svg.append('g').attr('transform', `translate(${rulerWidth - 5}, 0)`)
 
-  // 连线
-  g.selectAll('path.link')
-    .data(root.links().filter((l: any) => l.source.data.id !== 0))
-    .enter().append('path')
-    .attr('class', 'link')
-    .attr('fill', 'none')
-    .attr('stroke', '#e2e8f0')
-    .attr('stroke-width', 2)
-    .attr('d', (d: any) => {
-      const sx = d.source.x
-      const sy = d.source.y
-      const tx = d.target.x
-      const ty = d.target.y
-      return `M${sx},${sy} L${sx},${(sy + ty) / 2} L${tx},${(sy + ty) / 2} L${tx},${ty}`
-    })
+  // 连线：spouse（先画，在底层）
+  if (spouseEdges.length > 0) {
+    const spouseLineG = g.append('g').attr('class', 'spouse-links')
 
-  // 辅助函数：绘制卡片
-  function drawCard(container: d3.Selection<SVGGElement, any, any, any>, xOffset: number, yOffset: number, nodeData: TreeNode, displayYear?: number) {
-    const card = container.append('g')
-      .attr('transform', `translate(${xOffset}, ${yOffset})`)
+    spouseLineG.selectAll('line')
+      .data(spouseEdges)
+      .enter().append('line')
+      .attr('stroke', '#eab308')
+      .attr('stroke-width', 2)
+      .attr('stroke-dasharray', '6,3')
+      .attr('x1', d => (typeof d.source === 'number' ? 0 : d.source.x!))
+      .attr('y1', d => (typeof d.source === 'number' ? 0 : d.source.y!))
+      .attr('x2', d => (typeof d.target === 'number' ? 0 : d.target.x!))
+      .attr('y2', d => (typeof d.target === 'number' ? 0 : d.target.y!))
+
+    // 配偶连线中点圆点
+    spouseLineG.selectAll('circle')
+      .data(spouseEdges)
+      .enter().append('circle')
+      .attr('r', 2.5)
+      .attr('fill', '#eab308')
+      .attr('cx', d => {
+        const sx = typeof d.source === 'number' ? 0 : d.source.x!
+        const tx = typeof d.target === 'number' ? 0 : d.target.x!
+        return (sx + tx) / 2
+      })
+      .attr('cy', d => {
+        const sy = typeof d.source === 'number' ? 0 : d.source.y!
+        const ty = typeof d.target === 'number' ? 0 : d.target.y!
+        return (sy + ty) / 2
+      })
+  }
+
+  // 连线：parent-child
+  if (parentChildEdges.length > 0) {
+    const pcLineG = g.append('g').attr('class', 'parent-child-links')
+
+    pcLineG.selectAll('line')
+      .data(parentChildEdges)
+      .enter().append('line')
+      .attr('stroke', '#94a3b8')
+      .attr('stroke-width', 1.5)
+      .attr('stroke-opacity', 0.6)
+      .attr('x1', d => (typeof d.source === 'number' ? 0 : d.source.x!))
+      .attr('y1', d => (typeof d.source === 'number' ? 0 : d.source.y!))
+      .attr('x2', d => (typeof d.target === 'number' ? 0 : d.target.x!))
+      .attr('y2', d => (typeof d.target === 'number' ? 0 : d.target.y!))
+  }
+
+  // ---- 节点卡片 ----
+  const nodeG = g.selectAll('g.member-node')
+    .data(nodes)
+    .enter().append('g')
+    .attr('class', 'member-node')
+    .attr('transform', d => `translate(${d.x},${d.y})`)
+
+  nodeG.each(function(d) {
+    const el = d3.select(this)
+    const card = el.append('g')
 
     card.append('rect')
       .attr('x', -nodeWidth / 2)
@@ -438,13 +344,11 @@ function renderTree() {
       .attr('width', nodeWidth)
       .attr('height', nodeHeight)
       .attr('rx', 8)
-      .attr('fill', nodeData.gender === 1 ? '#dbeafe' : nodeData.gender === 2 ? '#fce7f3' : '#f1f5f9')
-      .attr('stroke', nodeData.gender === 1 ? '#3b82f6' : nodeData.gender === 2 ? '#ec4899' : '#cbd5e1')
+      .attr('fill', d.gender === 1 ? '#dbeafe' : d.gender === 2 ? '#fce7f3' : '#f1f5f9')
+      .attr('stroke', d.gender === 1 ? '#3b82f6' : d.gender === 2 ? '#ec4899' : '#cbd5e1')
       .attr('stroke-width', 1.5)
       .style('cursor', 'pointer')
-      .on('click', (event: MouseEvent) => {
-        handleNodeClick(event, nodeData)
-      })
+      .on('click', (event: MouseEvent) => { handleNodeClick(event, d) })
 
     card.append('text')
       .attr('text-anchor', 'middle')
@@ -452,10 +356,10 @@ function renderTree() {
       .attr('fill', '#1e293b')
       .attr('font-size', '13px')
       .attr('font-weight', '600')
-      .text(nodeData.name)
+      .text(d.name)
 
-    // 显示出生年份小字
-    const yearToShow = displayYear ?? (nodeData.id ? birthYearMap.get(nodeData.id) : undefined)
+    // 出生年份
+    const yearToShow = d.birthYear ?? estimateYearForNode(d)
     if (yearToShow != null) {
       card.append('text')
         .attr('text-anchor', 'middle')
@@ -464,48 +368,82 @@ function renderTree() {
         .attr('font-size', '10px')
         .text(String(yearToShow))
     }
-  }
-
-  // 画节点
-  const nodeG = g.selectAll('g.node')
-    .data(root.descendants().filter(d => d.data.id !== 0))
-    .enter().append('g')
-    .attr('transform', d => `translate(${d.x},${d.y})`)
-
-  nodeG.each(function(d) {
-    const data = d.data as TreeNode
-    const el = d3.select(this)
-
-    if (data.spouse) {
-      const coupleOffset = 70
-      const mainYear = estimateYear(d)
-      const spouseYear = estimateSpouseYear(data.spouse, mainYear)
-      const spouseYOffset = yearToY(spouseYear) - yearToY(mainYear)
-
-      drawCard(el, -coupleOffset, 0, data)
-      drawCard(el, +coupleOffset, spouseYOffset, data.spouse!, spouseYear)
-
-      const innerRight = -coupleOffset + nodeWidth / 2
-      const innerLeft  = +coupleOffset - nodeWidth / 2
-      el.append('line')
-        .attr('x1', innerRight).attr('y1', 0)
-        .attr('x2', innerLeft).attr('y2', spouseYOffset)
-        .attr('stroke', '#eab308')
-        .attr('stroke-width', 2)
-
-      el.append('circle')
-        .attr('cx', (innerRight + innerLeft) / 2)
-        .attr('cy', spouseYOffset / 2)
-        .attr('r', 2.5)
-        .attr('fill', '#eab308')
-    } else {
-      drawCard(el, 0, 0, data)
-    }
   })
+
+  // ---- Force Simulation ----
+  simulation = d3.forceSimulation<SimNode>(nodes)
+    .force('parent-link', d3.forceLink<SimNode, SimEdge>(parentChildEdges)
+      .id(d => d.id).distance(100).strength(0.4))
+    .force('spouse-link', d3.forceLink<SimNode, SimEdge>(spouseEdges)
+      .id(d => d.id).distance(80).strength(1.5))
+    .force('y', d3.forceY<SimNode>(d => yearToY(estimateYearForNode(d)))
+      .strength(1.0))
+    .force('x', d3.forceX<SimNode>(centerX).strength(0.02))
+    .force('collide', d3.forceCollide<SimNode>(80).strength(1.0))
+    .alphaDecay(0.02)
+    .on('tick', () => {
+      // 更新配偶连线
+      g.selectAll('.spouse-links line')
+        .attr('x1', d => (typeof d.source === 'number' ? 0 : d.source.x!))
+        .attr('y1', d => (typeof d.source === 'number' ? 0 : d.source.y!))
+        .attr('x2', d => (typeof d.target === 'number' ? 0 : d.target.x!))
+        .attr('y2', d => (typeof d.target === 'number' ? 0 : d.target.y!))
+
+      g.selectAll('.spouse-links circle')
+        .attr('cx', d => {
+          const sx = typeof d.source === 'number' ? 0 : d.source.x!
+          const tx = typeof d.target === 'number' ? 0 : d.target.x!
+          return (sx + tx) / 2
+        })
+        .attr('cy', d => {
+          const sy = typeof d.source === 'number' ? 0 : d.source.y!
+          const ty = typeof d.target === 'number' ? 0 : d.target.y!
+          return (sy + ty) / 2
+        })
+
+      // 更新父子连线
+      g.selectAll('.parent-child-links line')
+        .attr('x1', d => (typeof d.source === 'number' ? 0 : d.source.x!))
+        .attr('y1', d => (typeof d.source === 'number' ? 0 : d.source.y!))
+        .attr('x2', d => (typeof d.target === 'number' ? 0 : d.target.x!))
+        .attr('y2', d => (typeof d.target === 'number' ? 0 : d.target.y!))
+
+      // 更新节点位置
+      g.selectAll('g.member-node')
+        .attr('transform', d => `translate(${d.x},${d.y})`)
+    })
+
+  // Zoom/Pan
+  const zoom = d3.zoom<SVGSVGElement, unknown>()
+    .scaleExtent([0.3, 3])
+    .on('zoom', (event) => {
+      g.attr('transform', `translate(${event.transform.x + rulerWidth - 5},${event.transform.y}) scale(${event.transform.k})`)
+    })
+
+  svg.call(zoom)
+
+  // 节点拖拽
+  const drag = d3.drag<SVGGElement, SimNode>()
+    .on('start', (event, d) => {
+      if (!event.active && simulation) simulation.alphaTarget(0.3).restart()
+      d.fx = d.x
+      d.fy = d.y
+    })
+    .on('drag', (event, d) => {
+      d.fx = event.x
+      d.fy = event.y
+    })
+    .on('end', (event, d) => {
+      if (!event.active && simulation) simulation.alphaTarget(0)
+      d.fx = null
+      d.fy = null
+    })
+
+  g.selectAll<SVGGElement, SimNode>('g.member-node').call(drag)
 }
 
-onMounted(renderTree)
-watch(() => [props.members, props.relationships], renderTree, { deep: true })
+onMounted(renderGraph)
+watch(() => [props.members, props.relationships], renderGraph, { deep: true })
 </script>
 
 <template>
