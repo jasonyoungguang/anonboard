@@ -262,8 +262,8 @@ function renderGraph() {
   }
 
   const width = 1200
-  const nodeHeight = 60
-  const nodeWidth = 120
+  const nodeHeight = 55
+  const nodeWidth = 140
   const rulerWidth = 80
   const rulerStartY = 40
 
@@ -432,7 +432,18 @@ function renderGraph() {
   }
 
   // ---- 一次性渲染（顺序：线 → 节点） ----
-  // 配偶连线
+  // 构建配偶映射
+  const spouseMap = new Map<number, SimNode>()
+  for (const edge of spouseEdges) {
+    const source = typeof edge.source === 'number' ? nodeMap.get(edge.source) : edge.source
+    const target = typeof edge.target === 'number' ? nodeMap.get(edge.target) : edge.target
+    if (source && target) {
+      spouseMap.set(source.id, target)
+      spouseMap.set(target.id, source)
+    }
+  }
+
+  // 配偶连线（虚线）
   if (spouseEdges.length > 0) {
     const spouseLineG = g.append('g').attr('class', 'spouse-links')
 
@@ -476,7 +487,7 @@ function renderGraph() {
       .attr('d', polyPath)
   }
 
-  // 节点卡片
+  // 节点卡片 — 样式与 FamilyTreeClassic.vue 保持一致（含配偶同卡显示）
   const nodeG = g.selectAll('g.member-node')
     .data(nodes)
     .enter().append('g')
@@ -487,13 +498,27 @@ function renderGraph() {
     const el = d3.select(this)
     const card = el.append('g')
     const isHighlighted = selectedNodeId.value === d.id
+    const spouse = spouseMap.get(d.id)
+
+    // 有配偶时卡片加宽，按"男左女右"排列
+    const cardWidth = spouse ? nodeWidth * 1.8 : nodeWidth
+    const halfW = cardWidth / 2
+    const halfH = nodeHeight / 2
+
+    // 确定左右人物
+    let leftPerson: SimNode = d
+    let rightPerson: SimNode | null = spouse
+    if (spouse && d.gender === 2 && spouse.gender === 1) {
+      leftPerson = spouse
+      rightPerson = d
+    }
 
     // 高亮背景外发光
     if (isHighlighted) {
       card.append('rect')
-        .attr('x', -nodeWidth / 2 - 4)
-        .attr('y', -nodeHeight / 2 - 4)
-        .attr('width', nodeWidth + 8)
+        .attr('x', -halfW - 4)
+        .attr('y', -halfH - 4)
+        .attr('width', cardWidth + 8)
         .attr('height', nodeHeight + 8)
         .attr('rx', 10)
         .attr('fill', 'none')
@@ -501,37 +526,89 @@ function renderGraph() {
         .attr('stroke-width', 3)
     }
 
-    const bgColor = d.gender === 1 ? '#dbeafe' : d.gender === 2 ? '#fce7f3' : '#f1f5f9'
-    const borderColor = d.gender === 1 ? '#3b82f6' : d.gender === 2 ? '#ec4899' : '#cbd5e1'
+    const leftColor = leftPerson.gender === 1 ? '#dbeafe'
+      : leftPerson.gender === 2 ? '#fce7f3' : '#f1f5f9'
+    const leftBorder = leftPerson.gender === 1 ? '#3b82f6'
+      : leftPerson.gender === 2 ? '#ec4899' : '#cbd5e1'
 
     card.append('rect')
-      .attr('x', -nodeWidth / 2)
-      .attr('y', -nodeHeight / 2)
-      .attr('width', nodeWidth)
+      .attr('x', -halfW)
+      .attr('y', -halfH)
+      .attr('width', cardWidth)
       .attr('height', nodeHeight)
       .attr('rx', 8)
-      .attr('fill', isHighlighted ? '#fef3c7' : bgColor)
-      .attr('stroke', isHighlighted ? '#f59e0b' : borderColor)
+      .attr('fill', isHighlighted ? '#fef3c7' : leftColor)
+      .attr('stroke', isHighlighted ? '#f59e0b' : leftBorder)
       .attr('stroke-width', isHighlighted ? 2.5 : 1.5)
       .style('cursor', 'pointer')
       .on('click', (event: MouseEvent) => { handleNodeClick(event, d) })
 
-    card.append('text')
-      .attr('text-anchor', 'middle')
-      .attr('dy', '0.35em')
-      .attr('fill', '#1e293b')
-      .attr('font-size', '13px')
-      .attr('font-weight', '600')
-      .text(d.name)
+    if (rightPerson) {
+      // 分隔线
+      card.append('line')
+        .attr('x1', 0).attr('y1', -halfH + 8)
+        .attr('x2', 0).attr('y2', halfH - 8)
+        .attr('stroke', '#e2e8f0')
+        .attr('stroke-width', 1)
 
-    const yearToShow = d.birthYear ?? estimateYearForNode(d)
-    if (yearToShow != null) {
+      const rightColor = rightPerson.gender === 1 ? '#dbeafe'
+        : rightPerson.gender === 2 ? '#fce7f3' : '#f8fafc'
+
+      // 右侧人物背景
+      card.append('rect')
+        .attr('x', 0).attr('y', -halfH)
+        .attr('width', halfW)
+        .attr('height', nodeHeight)
+        .attr('rx', 8)
+        .attr('fill', rightColor)
+        .attr('stroke', 'none')
+        .style('cursor', 'pointer')
+        .on('click', (event: MouseEvent) => { handleNodeClick(event, rightPerson!) })
+
+      // 右侧姓名
       card.append('text')
+        .attr('x', halfW / 2).attr('y', 0)
+        .attr('dy', '-0.2em')
         .attr('text-anchor', 'middle')
-        .attr('dy', '1.6em')
+        .attr('fill', '#1e293b')
+        .attr('font-size', '14px')
+        .attr('font-weight', '600')
+        .text(rightPerson.name)
+
+      // 右侧年份
+      const rYear = rightPerson.birthYear ?? estimateYearForNode(rightPerson)
+      if (rYear != null) {
+        card.append('text')
+          .attr('x', halfW / 2).attr('y', 12)
+          .attr('dy', '0.35em')
+          .attr('text-anchor', 'middle')
+          .attr('fill', '#94a3b8')
+          .attr('font-size', '10px')
+          .text(rightPerson.deathYear != null ? `${rYear}-${rightPerson.deathYear}` : String(rYear))
+      }
+    }
+
+    // 左侧姓名
+    card.append('text')
+      .attr('x', rightPerson ? -halfW / 2 : 0).attr('y', 0)
+      .attr('dy', '-0.2em')
+      .attr('text-anchor', 'middle')
+      .attr('fill', '#1e293b')
+      .attr('font-size', '14px')
+      .attr('font-weight', '600')
+      .text(leftPerson.name)
+
+    // 左侧年份
+    const lYear = d.birthYear ?? estimateYearForNode(d)
+    if (lYear != null) {
+      card.append('text')
+        .attr('x', rightPerson ? -halfW / 2 : 0)
+        .attr('y', 12)
+        .attr('dy', '0.35em')
+        .attr('text-anchor', 'middle')
         .attr('fill', '#94a3b8')
         .attr('font-size', '10px')
-        .text(String(yearToShow))
+        .text(d.deathYear != null ? `${lYear}-${d.deathYear}` : String(lYear))
     }
   })
 
