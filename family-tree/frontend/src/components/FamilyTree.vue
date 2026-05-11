@@ -108,6 +108,7 @@ const relativeType = ref('')
 const relativeLabel = ref('')
 const relativeForm = ref({ name: '', birthYear: null as number | null, deathYear: null as number | null })
 const saving = ref(false)
+const relativeError = ref('')
 const deleting = ref(false)
 const showDeleteConfirm = ref(false)
 
@@ -161,19 +162,26 @@ function closeContextMenu() {
 
 async function saveRelative() {
   if (!menuTarget.value) return
+  const bv = relativeForm.value.birthYear
+  const dv = relativeForm.value.deathYear
+  // v-model.number 在输入框为空时产生 "" 或 NaN，需过滤
+  const birthYear = bv == null || bv === '' || (typeof bv === 'number' && isNaN(bv)) ? undefined : bv
+  const deathYear = dv == null || dv === '' || (typeof dv === 'number' && isNaN(dv)) ? undefined : dv
+  relativeError.value = ''
   saving.value = true
   try {
     await addRelative(menuTarget.value.id, {
       relationType: relativeType.value,
       name: relativeForm.value.name,
-      birthYear: relativeForm.value.birthYear ?? undefined,
-      deathYear: relativeForm.value.deathYear ?? undefined
+      birthYear,
+      deathYear
     })
     showRelativeModal.value = false
     menuTarget.value = null
     emit('dataChanged')
-  } catch (e) {
+  } catch (e: any) {
     console.error('添加亲属失败:', e)
+    relativeError.value = e?.response?.data?.message || '添加失败，请检查网络或重试'
   } finally {
     saving.value = false
   }
@@ -572,6 +580,7 @@ watch(() => [props.members, props.relationships], () => renderGraph())
           <input v-model.number="relativeForm.deathYear" type="number" class="form-input" placeholder="留空表示健在" />
         </div>
         <p class="form-hint">辈分和关系将自动确定</p>
+        <p v-if="relativeError" class="form-error">{{ relativeError }}</p>
         <div class="modal-actions">
           <button class="btn btn-secondary" @click="showRelativeModal = false">取消</button>
           <button class="btn btn-primary" :disabled="!relativeForm.name || saving" @click="saveRelative">
@@ -750,5 +759,12 @@ watch(() => [props.members, props.relationships], () => renderGraph())
   color: #94a3b8;
   margin-top: -4px;
   margin-bottom: 8px;
+}
+
+.form-error {
+  color: #ef4444;
+  font-size: 13px;
+  margin-bottom: 8px;
+  text-align: center;
 }
 </style>
