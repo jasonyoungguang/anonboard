@@ -283,14 +283,64 @@ function renderTree() {
     }
   }
 
-  // Zoom/Pan
+  // Zoom/Pan - 保存 zoom 行为实例以便重置
   const zoom = d3.zoom<SVGSVGElement, unknown>()
-    .scaleExtent([0.3, 3])
+    .scaleExtent([0.2, 5])
     .on('zoom', (event) => {
       g.attr('transform', `translate(${event.transform.x},${event.transform.y}) scale(${event.transform.k})`)
     })
 
   svg.call(zoom)
+
+  // 自动适配视图（auto-fit）
+  fitToView(svg, g, zoom)
+}
+
+/** 自动缩放+平移使树图适配 SVG 可视区域（使用 viewBox 内部坐标空间） */
+function fitToView(
+  svg: d3.Selection<SVGSVGElement, unknown, null, undefined>,
+  g: d3.Selection<SVGGElement, unknown, null, undefined>,
+  zoom: d3.ZoomBehavior<SVGSVGElement, unknown>
+) {
+  const svgNode = svg.node()!
+  const gNode = g.node()
+  if (!gNode) return
+
+  const bounds = gNode.getBBox()
+  if (bounds.width === 0 || bounds.height === 0) return
+
+  // 读取 viewBox 作为参考坐标空间
+  const vb = svgNode.getAttribute('viewBox')
+  if (!vb) return
+  const [, , vbW, vbH] = vb.split(/\s+/).map(Number)
+  if (vbW === 0 || vbH === 0) return
+
+  const padding = 0.12
+  const scaleX = vbW / (bounds.width * (1 + padding * 2))
+  const scaleY = vbH / (bounds.height * (1 + padding * 2))
+  const scale = Math.min(scaleX, scaleY, 1.5)
+
+  const tx = vbW / 2 - (bounds.x + bounds.width / 2) * scale
+  const ty = vbH / 2 - (bounds.y + bounds.height / 2) * scale
+
+  svg.transition()
+    .duration(400)
+    .call(zoom.transform, d3.zoomIdentity.translate(tx, ty).scale(scale))
+}
+
+/** 手动重置视图（用户点击按钮时调用） */
+function resetView() {
+  if (!svgRef.value) return
+  const svg = d3.select(svgRef.value)
+  const g = svg.select<SVGGElement>('g')
+  if (g.empty()) return
+  const zoom = d3.zoom<SVGSVGElement, unknown>()
+    .scaleExtent([0.2, 5])
+    .on('zoom', (event) => {
+      g.attr('transform', `translate(${event.transform.x},${event.transform.y}) scale(${event.transform.k})`)
+    })
+  svg.call(zoom)
+  fitToView(svg, g, zoom)
 }
 
 function layoutSubtree(
@@ -345,6 +395,9 @@ watch(() => [props.members, props.relationships], () => {
           <option v-for="m in members" :key="m.id" :value="m.id">{{ m.name }}</option>
         </select>
       </div>
+      <button class="btn btn-sm btn-outline-secondary" @click="resetView" title="重置缩放">
+        适应视图
+      </button>
     </div>
     <svg ref="svgRef" width="100%" :height="'600px'"></svg>
   </div>
