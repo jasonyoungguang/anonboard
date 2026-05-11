@@ -93,9 +93,22 @@ function buildAncestors(
   // 祖先树中，"children" 是父母们
   const parents: TreeNode[] = []
   const parentIds = parentMap.get(memberId) || []
+  const usedParentIds = new Set<number>()
+
   for (const parentId of parentIds) {
+    if (usedParentIds.has(parentId)) continue
+    usedParentIds.add(parentId)
+
+    // 检查当前父母的配偶是否也在父母列表中，如是则合并为一个节点
+    const parentSpouseId = spouseMap.get(parentId)
+    if (parentSpouseId != null && parentIds.includes(parentSpouseId)) {
+      usedParentIds.add(parentSpouseId)
+    }
+
     const parentNode = buildAncestors(parentId, depth - 1, memberMap, childMap, parentMap, spouseMap)
-    if (parentNode) parents.push(parentNode)
+    if (parentNode) {
+      parents.push(parentNode)
+    }
   }
 
   return { member, spouse, children: parents, depth }
@@ -147,7 +160,7 @@ function renderTree() {
     const hierarchy = d3.hierarchy(ancestorRoot, d => d.children)
     const treeLayout = d3.tree<TreeNode>().nodeSize([hSpacing, vSpacing])
     treeLayout(hierarchy)
-    layoutSubtree(hierarchy, 0, allNodes, allLinks, true)  // invert = true
+    layoutSubtree(hierarchy, 0, allNodes, allLinks, true, true)  // invert=true, skipRoot=true
   }
 
   // 确定 SVG 尺寸
@@ -194,29 +207,34 @@ function renderTree() {
 
     const nodeG = g.append('g').attr('transform', `translate(${dx},${dy})`)
 
-    const bgColor = node.member.gender === 1 ? '#dbeafe'
-      : node.member.gender === 2 ? '#fce7f3' : '#f1f5f9'
-    const borderColor = node.member.gender === 1 ? '#3b82f6'
-      : node.member.gender === 2 ? '#ec4899' : '#cbd5e1'
-
-    // 配偶节点（在主节点内并排显示）
+    // 有配偶时按"男左女右"排列
     const hasSpouse = node.spouse != null
     const cardWidth = hasSpouse ? nodeWidth * 1.8 : nodeWidth
 
+    const leftPerson = hasSpouse && node.member.gender === 2 && node.spouse!.gender === 1
+      ? node.spouse! : node.member
+    const rightPerson = hasSpouse && node.member.gender === 2 && node.spouse!.gender === 1
+      ? node.member : (hasSpouse ? node.spouse! : null)
+
+    const leftColor = leftPerson.gender === 1 ? '#dbeafe'
+      : leftPerson.gender === 2 ? '#fce7f3' : '#f1f5f9'
+    const borderColor = leftPerson.gender === 1 ? '#3b82f6'
+      : leftPerson.gender === 2 ? '#ec4899' : '#cbd5e1'
+
     const card = nodeG.append('g')
 
-    // 主卡片背景
+    // 卡片背景
     card.append('rect')
       .attr('x', 0).attr('y', 0)
       .attr('width', cardWidth).attr('height', nodeHeight)
       .attr('rx', 8)
-      .attr('fill', bgColor)
+      .attr('fill', leftColor)
       .attr('stroke', borderColor)
       .attr('stroke-width', 1.5)
       .style('cursor', 'pointer')
       .on('click', () => { router.push(`/member/${node.member.id}`) })
 
-    if (hasSpouse) {
+    if (hasSpouse && rightPerson) {
       // 分隔线
       card.append('line')
         .attr('x1', nodeWidth).attr('y1', 8)
@@ -224,20 +242,20 @@ function renderTree() {
         .attr('stroke', '#e2e8f0')
         .attr('stroke-width', 1)
 
-      const spouseColor = node.spouse!.gender === 1 ? '#dbeafe'
-        : node.spouse!.gender === 2 ? '#fce7f3' : '#f8fafc'
+      const rightColor = rightPerson.gender === 1 ? '#dbeafe'
+        : rightPerson.gender === 2 ? '#fce7f3' : '#f8fafc'
 
-      // 配偶区域
+      // 右侧人物区域
       card.append('rect')
         .attr('x', nodeWidth).attr('y', 0)
         .attr('width', nodeWidth * 0.8).attr('height', nodeHeight)
         .attr('rx', 8)
-        .attr('fill', spouseColor)
+        .attr('fill', rightColor)
         .attr('stroke', 'none')
         .style('cursor', 'pointer')
-        .on('click', () => { router.push(`/member/${node.spouse!.id}`) })
+        .on('click', () => { router.push(`/member/${rightPerson.id}`) })
 
-      // 配偶姓名
+      // 右侧姓名
       card.append('text')
         .attr('x', nodeWidth + nodeWidth * 0.4).attr('y', nodeHeight / 2)
         .attr('dy', '0.35em')
@@ -245,41 +263,41 @@ function renderTree() {
         .attr('fill', '#1e293b')
         .attr('font-size', '12px')
         .attr('font-weight', '500')
-        .text(node.spouse!.name)
+        .text(rightPerson.name)
 
-      // 配偶年份
-      const spouseYear = node.spouse!.birthYear
-      if (spouseYear != null) {
+      // 右侧年份
+      const rightYear = rightPerson.birthYear
+      if (rightYear != null) {
         card.append('text')
           .attr('x', nodeWidth + nodeWidth * 0.4).attr('y', nodeHeight / 2 + 12)
           .attr('dy', '0.35em')
           .attr('text-anchor', 'middle')
           .attr('fill', '#94a3b8')
           .attr('font-size', '9px')
-          .text(String(spouseYear))
+          .text(rightPerson.deathYear != null ? `${rightYear}-${rightPerson.deathYear}` : String(rightYear))
       }
     }
 
-    // 主姓名
+    // 左侧姓名
     card.append('text')
-      .attr('x', hasSpouse ? nodeWidth / 2 : nodeWidth / 2).attr('y', nodeHeight / 2)
+      .attr('x', nodeWidth / 2).attr('y', nodeHeight / 2)
       .attr('dy', '-0.2em')
       .attr('text-anchor', 'middle')
       .attr('fill', '#1e293b')
       .attr('font-size', '14px')
       .attr('font-weight', '600')
-      .text(node.member.name)
+      .text(leftPerson.name)
 
-    // 主年份
-    const year = node.member.birthYear
-    if (year != null) {
+    // 左侧年份
+    const leftYear = leftPerson.birthYear
+    if (leftYear != null) {
       card.append('text')
-        .attr('x', hasSpouse ? nodeWidth / 2 : nodeWidth / 2).attr('y', nodeHeight / 2 + 12)
+        .attr('x', nodeWidth / 2).attr('y', nodeHeight / 2 + 12)
         .attr('dy', '0.35em')
         .attr('text-anchor', 'middle')
         .attr('fill', '#94a3b8')
         .attr('font-size', '10px')
-        .text(node.member.deathYear != null ? `${year}-${node.member.deathYear}` : String(year))
+        .text(leftPerson.deathYear != null ? `${leftYear}-${leftPerson.deathYear}` : String(leftYear))
     }
   }
 
@@ -348,9 +366,11 @@ function layoutSubtree(
   baseY: number,
   allNodes: { node: TreeNode; x: number; y: number }[],
   allLinks: { source: { x: number; y: number }; target: { x: number; y: number } }[],
-  invert = false
+  invert = false,
+  skipRoot = false
 ) {
   root.each(node => {
+    if (skipRoot && node.depth === 0) return
     const y = invert ? baseY - (node.depth) * vSpacing : baseY + (node.depth) * vSpacing
     allNodes.push({ node: node.data, x: node.x, y })
     if (node.parent) {
