@@ -230,14 +230,6 @@ function buildGraph() {
   return { nodes, parentChildEdges, spouseEdges, nodeMap }
 }
 
-// ---- 确定性哈希（替代 Math.random） ----
-function deterministicX(id: number, range: number): number {
-  let h = id * 2654435761
-  h = ((h >> 16) ^ h) * 0x45d9f3b
-  h = ((h >> 16) ^ h)
-  return ((h & 0x7fffffff) % 10000) / 10000 * range - range / 2
-}
-
 // ---- 渲染 ----
 let simulation: d3.Simulation<SimNode, SimEdge> | null = null
 
@@ -250,7 +242,7 @@ function renderGraph() {
   svg.selectAll('*').remove()
 
   const graphData = buildGraph()
-  const { nodes, parentChildEdges, spouseEdges, nodeMap } = graphData
+  const { nodes, parentChildEdges, spouseEdges } = graphData
 
   if (nodes.length === 0) {
     svg.append('text')
@@ -261,166 +253,27 @@ function renderGraph() {
     return
   }
 
-  const width = 1200
   const nodeHeight = 55
   const nodeWidth = 140
-  const rulerWidth = 80
-  const rulerStartY = 40
+  const simWidth = 1600
+  const simHeight = 900
 
-  // ---- 年份数据 ----
-  const birthYearMap = new Map<number, number>()
-  const knownYears: number[] = []
-  for (const m of props.members) {
-    if (m.birthYear != null) { birthYearMap.set(m.id, m.birthYear); knownYears.push(m.birthYear) }
-  }
-  // 用已知成员平均出生年份代替硬编码 1990
-  const avgKnownYear = knownYears.length > 0 ? Math.round(knownYears.reduce((a, b) => a + b, 0) / knownYears.length) : 1990
-
-  // ---- 年份推断（图遍历版本） ----
-  const estimateCache = new Map<number, number>()
-
-  function estimateYearForNode(node: SimNode): number {
-    if (estimateCache.has(node.id)) return estimateCache.get(node.id)!
-    if (birthYearMap.has(node.id)) {
-      estimateCache.set(node.id, birthYearMap.get(node.id)!)
-      return birthYearMap.get(node.id)!
-    }
-
-    let minChildYear = Infinity
-    for (const edge of parentChildEdges) {
-      const sourceId = typeof edge.source === 'number' ? edge.source : edge.source.id
-      if (sourceId === node.id) {
-        const child = typeof edge.target === 'number' ? nodeMap.get(edge.target) : edge.target
-        if (child) {
-          const cy = estimateYearForNode(child)
-          if (cy < minChildYear) minChildYear = cy
-        }
-      }
-    }
-    if (minChildYear < Infinity) {
-      const result = minChildYear - 25
-      estimateCache.set(node.id, result)
-      return result
-    }
-    const result = avgKnownYear - node.generation * 25
-    estimateCache.set(node.id, result)
-    return result
-  }
-
-  // 收集所有年份确定范围
-  const allYears = nodes.map(n => estimateYearForNode(n))
-  let minYear = Math.min(...allYears) - 5
-  let maxYear = Math.max(...allYears) + 5
-  const yearRange = maxYear - minYear
-
-  const yearScale = Math.max(6, Math.min(12, (1200 - rulerStartY - 60) / yearRange))
-  const contentHeight = yearRange * yearScale + rulerStartY + 60
-  svgHeight.value = contentHeight
-  svg.attr('viewBox', `0 0 ${width} ${contentHeight}`)
-
-  function yearToY(year: number): number {
-    return rulerStartY + (maxYear - year) * yearScale
-  }
-
-  // 预设初始位置：Y 按出生年份，X 用确定性哈希
-  const centerX = (width - rulerWidth) / 2 + rulerWidth
-  const initialXMap = new Map<number, number>()
-  for (const node of nodes) {
-    const ix = centerX + deterministicX(node.id, 600)
-    node.x = ix
-    initialXMap.set(node.id, ix)
-    node.y = yearToY(estimateYearForNode(node))
-  }
-
-  // ---- 年份尺子 ----
-  const rulerG = svg.append('g').attr('transform', `translate(${rulerWidth - 15}, 0)`)
-
-  rulerG.append('line')
-    .attr('x1', 0).attr('y1', yearToY(maxYear + 5))
-    .attr('x2', 0).attr('y2', yearToY(minYear - 5))
-    .attr('stroke', '#cbd5e1')
-    .attr('stroke-width', 1.5)
-
-  const tickStep = yearRange > 100 ? 20 : yearRange > 50 ? 10 : 5
-  for (let y = Math.ceil(minYear / tickStep) * tickStep; y <= maxYear; y += tickStep) {
-    const py = yearToY(y)
-    const isMajor = y % (tickStep * 2) === 0
-    rulerG.append('line')
-      .attr('x1', 0).attr('y1', py)
-      .attr('x2', isMajor ? 12 : 6).attr('y2', py)
-      .attr('stroke', '#94a3b8')
-      .attr('stroke-width', isMajor ? 1.5 : 0.8)
-
-    svg.append('line')
-      .attr('x1', rulerWidth).attr('y1', py)
-      .attr('x2', width).attr('y2', py)
-      .attr('stroke', isMajor ? '#e2e8f0' : '#f1f5f9')
-      .attr('stroke-width', isMajor ? 1 : 0.5)
-
-    if (isMajor) {
-      rulerG.append('text')
-        .attr('x', 16).attr('y', py)
-        .attr('dy', '0.35em')
-        .attr('fill', '#64748b')
-        .attr('font-size', '11px')
-        .attr('font-family', 'monospace')
-        .text(String(y))
-    }
-  }
-
-  // ---- 图例（固定在 SVG 左上角） ----
-  const legendG = svg.append('g').attr('transform', `translate(${width - 170}, 12)`)
-  legendG.append('rect')
-    .attr('width', 155).attr('height', 52)
-    .attr('rx', 6).attr('fill', '#ffffff')
-    .attr('stroke', '#e2e8f0').attr('stroke-width', 1)
-
-  legendG.append('line')
-    .attr('x1', 10).attr('y1', 20).attr('x2', 50).attr('y2', 20)
-    .attr('stroke', '#94a3b8').attr('stroke-width', 1.5).attr('stroke-opacity', 0.6)
-  legendG.append('text')
-    .attr('x', 56).attr('y', 24).attr('fill', '#64748b').attr('font-size', '11px')
-    .text('亲子关系')
-
-  legendG.append('line')
-    .attr('x1', 10).attr('y1', 40).attr('x2', 50).attr('y2', 40)
-    .attr('stroke', '#eab308').attr('stroke-width', 2)
-    .attr('stroke-dasharray', '6,3')
-  legendG.append('text')
-    .attr('x', 56).attr('y', 44).attr('fill', '#64748b').attr('font-size', '11px')
-    .text('配偶关系')
-
-  // ---- 主图层（可缩放） ----
-  const g = svg.append('g').attr('transform', `translate(${rulerWidth - 5}, 0)`)
-
-  // 辅助：生成 L 形折线路径
-  function polyPath(d: SimEdge): string {
-    const sx = typeof d.source === 'number' ? 0 : d.source.x!
-    const sy = typeof d.source === 'number' ? 0 : d.source.y!
-    const tx = typeof d.target === 'number' ? 0 : d.target.x!
-    const ty = typeof d.target === 'number' ? 0 : d.target.y!
-    const midY = (sy + ty) / 2
-    return `M${sx},${sy} L${sx},${midY} L${tx},${midY} L${tx},${ty}`
-  }
-
-  // ---- 力导向静默计算（无动画） ----
+  // ---- 纯力导向布局（无年份尺/辈分约束） ----
   const sim = d3.forceSimulation<SimNode>(nodes)
     .force('parent-link', d3.forceLink<SimNode, SimEdge>(parentChildEdges)
-      .id(d => d.id).distance(100).strength(0.4))
+      .id(d => d.id).distance(180).strength(0.5))
     .force('spouse-link', d3.forceLink<SimNode, SimEdge>(spouseEdges)
-      .id(d => d.id).distance(80).strength(1.5))
-    .force('y', d3.forceY<SimNode>(d => yearToY(estimateYearForNode(d)))
-      .strength(1.0))
-    .force('x', d3.forceX<SimNode>(d => initialXMap.get(d.id)!).strength(0.1))
-    .force('collide', d3.forceCollide<SimNode>(80).strength(1.0))
+      .id(d => d.id).distance(100).strength(0.7))
+    .force('charge', d3.forceManyBody<SimNode>().strength(-500))
+    .force('center', d3.forceCenter(simWidth / 2, simHeight / 2).strength(0.3))
+    .force('collide', d3.forceCollide<SimNode>(90).strength(1.0))
     .stop()
 
-  for (let i = 0; i < 300; i++) { sim.tick() }
+  for (let i = 0; i < 400; i++) { sim.tick() }
   simulation = sim
 
-  // 仿真后锁定位置：Y 强制对齐到年份尺，X 锁定仿真自然收敛位置
+  // 锁定位置
   for (const node of nodes) {
-    node.y = yearToY(estimateYearForNode(node))
     node.fx = node.x
     node.fy = node.y
   }
@@ -431,63 +284,46 @@ function renderGraph() {
     nodePositions.set(node.id, { x: node.x!, y: node.y! })
   }
 
-  // ---- 一次性渲染（顺序：线 → 节点） ----
-  // 构建配偶映射
-  const spouseMap = new Map<number, SimNode>()
+  svgHeight.value = 600
+  svg.attr('viewBox', `0 0 ${simWidth} ${simHeight}`)
+
+  // ---- 主图层 ----
+  const g = svg.append('g')
+
+  // ---- 连线（用直线区分血缘/非血缘） ----
+  const linkG = g.append('g')
+
+  // 配偶连线：黄色虚线
   for (const edge of spouseEdges) {
-    const source = typeof edge.source === 'number' ? nodeMap.get(edge.source) : edge.source
-    const target = typeof edge.target === 'number' ? nodeMap.get(edge.target) : edge.target
-    if (source && target) {
-      spouseMap.set(source.id, target)
-      spouseMap.set(target.id, source)
-    }
-  }
-
-  // 配偶连线（虚线）
-  if (spouseEdges.length > 0) {
-    const spouseLineG = g.append('g').attr('class', 'spouse-links')
-
-    spouseLineG.selectAll('path')
-      .data(spouseEdges)
-      .enter().append('path')
-      .attr('fill', 'none')
+    const sx = (edge.source as SimNode).x!
+    const sy = (edge.source as SimNode).y!
+    const tx = (edge.target as SimNode).x!
+    const ty = (edge.target as SimNode).y!
+    linkG.append('line')
+      .attr('x1', sx).attr('y1', sy)
+      .attr('x2', tx).attr('y2', ty)
       .attr('stroke', '#eab308')
       .attr('stroke-width', 2)
       .attr('stroke-dasharray', '6,3')
-      .attr('d', polyPath)
-
-    spouseLineG.selectAll('circle')
-      .data(spouseEdges)
-      .enter().append('circle')
-      .attr('r', 2.5)
-      .attr('fill', '#eab308')
-      .attr('cx', d => {
-        const sx = typeof d.source === 'number' ? 0 : d.source.x!
-        const tx = typeof d.target === 'number' ? 0 : d.target.x!
-        return (sx + tx) / 2
-      })
-      .attr('cy', d => {
-        const sy = typeof d.source === 'number' ? 0 : d.source.y!
-        const ty = typeof d.target === 'number' ? 0 : d.target.y!
-        return (sy + ty) / 2
-      })
+      .attr('stroke-linecap', 'round')
   }
 
-  // 父子连线
-  if (parentChildEdges.length > 0) {
-    const pcLineG = g.append('g').attr('class', 'parent-child-links')
-
-    pcLineG.selectAll('path')
-      .data(parentChildEdges)
-      .enter().append('path')
-      .attr('fill', 'none')
+  // 亲子连线：灰色实线
+  for (const edge of parentChildEdges) {
+    const sx = (edge.source as SimNode).x!
+    const sy = (edge.source as SimNode).y!
+    const tx = (edge.target as SimNode).x!
+    const ty = (edge.target as SimNode).y!
+    linkG.append('line')
+      .attr('x1', sx).attr('y1', sy)
+      .attr('x2', tx).attr('y2', ty)
       .attr('stroke', '#94a3b8')
       .attr('stroke-width', 1.5)
-      .attr('stroke-opacity', 0.6)
-      .attr('d', polyPath)
+      .attr('stroke-opacity', 0.5)
+      .attr('stroke-linecap', 'round')
   }
 
-  // 节点卡片 — 样式与 FamilyTreeClassic.vue 保持一致（含配偶同卡显示）
+  // ---- 节点卡片（每人一张，无配偶内嵌） ----
   const nodeG = g.selectAll('g.member-node')
     .data(nodes)
     .enter().append('g')
@@ -498,27 +334,15 @@ function renderGraph() {
     const el = d3.select(this)
     const card = el.append('g')
     const isHighlighted = selectedNodeId.value === d.id
-    const spouse = spouseMap.get(d.id)
-
-    // 有配偶时卡片加宽，按"男左女右"排列
-    const cardWidth = spouse ? nodeWidth * 1.8 : nodeWidth
-    const halfW = cardWidth / 2
+    const halfW = nodeWidth / 2
     const halfH = nodeHeight / 2
 
-    // 确定左右人物
-    let leftPerson: SimNode = d
-    let rightPerson: SimNode | null = spouse
-    if (spouse && d.gender === 2 && spouse.gender === 1) {
-      leftPerson = spouse
-      rightPerson = d
-    }
-
-    // 高亮背景外发光
+    // 高亮外发光
     if (isHighlighted) {
       card.append('rect')
         .attr('x', -halfW - 4)
         .attr('y', -halfH - 4)
-        .attr('width', cardWidth + 8)
+        .attr('width', nodeWidth + 8)
         .attr('height', nodeHeight + 8)
         .attr('rx', 10)
         .attr('fill', 'none')
@@ -526,97 +350,69 @@ function renderGraph() {
         .attr('stroke-width', 3)
     }
 
-    const leftColor = leftPerson.gender === 1 ? '#dbeafe'
-      : leftPerson.gender === 2 ? '#fce7f3' : '#f1f5f9'
-    const leftBorder = leftPerson.gender === 1 ? '#3b82f6'
-      : leftPerson.gender === 2 ? '#ec4899' : '#cbd5e1'
+    const bgColor = d.gender === 1 ? '#dbeafe'
+      : d.gender === 2 ? '#fce7f3' : '#f1f5f9'
+    const borderColor = d.gender === 1 ? '#3b82f6'
+      : d.gender === 2 ? '#ec4899' : '#cbd5e1'
 
     card.append('rect')
       .attr('x', -halfW)
       .attr('y', -halfH)
-      .attr('width', cardWidth)
+      .attr('width', nodeWidth)
       .attr('height', nodeHeight)
       .attr('rx', 8)
-      .attr('fill', isHighlighted ? '#fef3c7' : leftColor)
-      .attr('stroke', isHighlighted ? '#f59e0b' : leftBorder)
+      .attr('fill', isHighlighted ? '#fef3c7' : bgColor)
+      .attr('stroke', isHighlighted ? '#f59e0b' : borderColor)
       .attr('stroke-width', isHighlighted ? 2.5 : 1.5)
       .style('cursor', 'pointer')
       .on('click', (event: MouseEvent) => { handleNodeClick(event, d) })
 
-    if (rightPerson) {
-      // 分隔线
-      card.append('line')
-        .attr('x1', 0).attr('y1', -halfH + 8)
-        .attr('x2', 0).attr('y2', halfH - 8)
-        .attr('stroke', '#e2e8f0')
-        .attr('stroke-width', 1)
-
-      const rightColor = rightPerson.gender === 1 ? '#dbeafe'
-        : rightPerson.gender === 2 ? '#fce7f3' : '#f8fafc'
-
-      // 右侧人物背景
-      card.append('rect')
-        .attr('x', 0).attr('y', -halfH)
-        .attr('width', halfW)
-        .attr('height', nodeHeight)
-        .attr('rx', 8)
-        .attr('fill', rightColor)
-        .attr('stroke', 'none')
-        .style('cursor', 'pointer')
-        .on('click', (event: MouseEvent) => { handleNodeClick(event, rightPerson!) })
-
-      // 右侧姓名
-      card.append('text')
-        .attr('x', halfW / 2).attr('y', 0)
-        .attr('dy', '-0.2em')
-        .attr('text-anchor', 'middle')
-        .attr('fill', '#1e293b')
-        .attr('font-size', '14px')
-        .attr('font-weight', '600')
-        .text(rightPerson.name)
-
-      // 右侧年份
-      const rYear = rightPerson.birthYear ?? estimateYearForNode(rightPerson)
-      if (rYear != null) {
-        card.append('text')
-          .attr('x', halfW / 2).attr('y', 12)
-          .attr('dy', '0.35em')
-          .attr('text-anchor', 'middle')
-          .attr('fill', '#94a3b8')
-          .attr('font-size', '10px')
-          .text(rightPerson.deathYear != null ? `${rYear}-${rightPerson.deathYear}` : String(rYear))
-      }
-    }
-
-    // 左侧姓名
     card.append('text')
-      .attr('x', rightPerson ? -halfW / 2 : 0).attr('y', 0)
-      .attr('dy', '-0.2em')
       .attr('text-anchor', 'middle')
+      .attr('dy', '-0.2em')
       .attr('fill', '#1e293b')
       .attr('font-size', '14px')
       .attr('font-weight', '600')
-      .text(leftPerson.name)
+      .text(d.name)
 
-    // 左侧年份
-    const lYear = d.birthYear ?? estimateYearForNode(d)
-    if (lYear != null) {
+    if (d.birthYear != null) {
       card.append('text')
-        .attr('x', rightPerson ? -halfW / 2 : 0)
+        .attr('text-anchor', 'middle')
         .attr('y', 12)
         .attr('dy', '0.35em')
-        .attr('text-anchor', 'middle')
         .attr('fill', '#94a3b8')
         .attr('font-size', '10px')
-        .text(d.deathYear != null ? `${lYear}-${d.deathYear}` : String(lYear))
+        .text(d.deathYear != null ? `${d.birthYear}-${d.deathYear}` : String(d.birthYear))
     }
   })
 
+  // ---- 图例 ----
+  const legendG = svg.append('g').attr('transform', `translate(${simWidth - 170}, 12)`)
+  legendG.append('rect')
+    .attr('width', 155).attr('height', 52)
+    .attr('rx', 6).attr('fill', '#ffffff')
+    .attr('stroke', '#e2e8f0').attr('stroke-width', 1)
+
+  legendG.append('line')
+    .attr('x1', 10).attr('y1', 20).attr('x2', 50).attr('y2', 20)
+    .attr('stroke', '#94a3b8').attr('stroke-width', 1.5).attr('stroke-opacity', 0.5)
+  legendG.append('text')
+    .attr('x', 56).attr('y', 24).attr('fill', '#64748b').attr('font-size', '11px')
+    .text('血缘关系')
+
+  legendG.append('line')
+    .attr('x1', 10).attr('y1', 40).attr('x2', 50).attr('y2', 40)
+    .attr('stroke', '#eab308').attr('stroke-width', 2)
+    .attr('stroke-dasharray', '6,3')
+  legendG.append('text')
+    .attr('x', 56).attr('y', 44).attr('fill', '#64748b').attr('font-size', '11px')
+    .text('配偶关系')
+
   // Zoom/Pan
   const zoom = d3.zoom<SVGSVGElement, unknown>()
-    .scaleExtent([0.3, 3])
+    .scaleExtent([0.2, 5])
     .on('zoom', (event) => {
-      g.attr('transform', `translate(${event.transform.x + rulerWidth - 5},${event.transform.y}) scale(${event.transform.k})`)
+      g.attr('transform', event.transform.toString())
     })
 
   svg.call(zoom)
