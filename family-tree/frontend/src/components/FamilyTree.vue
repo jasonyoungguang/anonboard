@@ -84,8 +84,8 @@ function exportPNG() {
   const ctx = canvas.getContext('2d')!
   const img = new Image()
   img.onload = () => {
-    canvas.width = svgEl.viewBox.baseVal.width || 1200
-    canvas.height = svgEl.viewBox.baseVal.height || 800
+    canvas.width = svgEl.viewBox.baseVal.width || 2000
+    canvas.height = svgEl.viewBox.baseVal.height || 1200
     ctx.fillStyle = '#ffffff'
     ctx.fillRect(0, 0, canvas.width, canvas.height)
     ctx.drawImage(img, 0, 0)
@@ -187,6 +187,8 @@ interface SimNode extends d3.SimulationNodeDatum {
   generation: number
   birthYear: number | null
   deathYear: number | null
+  groupX?: number
+  genY?: number
 }
 
 interface SimEdge {
@@ -230,6 +232,34 @@ function buildGraph() {
   return { nodes, parentChildEdges, spouseEdges, nodeMap }
 }
 
+// ---- 家族分组：通过连通分量聚类（让同一家族自然靠拢） ----
+function computeFamilyGroups(nodes: SimNode[], allEdges: SimEdge[]): Map<number, number> {
+  const adj = new Map<number, Set<number>>()
+  for (const n of nodes) adj.set(n.id, new Set())
+  for (const e of allEdges) {
+    const s = typeof e.source === 'number' ? e.source : e.source.id
+    const t = typeof e.target === 'number' ? e.target : e.target.id
+    adj.get(s)?.add(t)
+    adj.get(t)?.add(s)
+  }
+  const groupMap = new Map<number, number>()
+  let gid = 0
+  for (const n of nodes) {
+    if (groupMap.has(n.id)) continue
+    const stack = [n.id]
+    while (stack.length) {
+      const id = stack.pop()!
+      if (groupMap.has(id)) continue
+      groupMap.set(id, gid)
+      for (const nb of adj.get(id) ?? []) {
+        if (!groupMap.has(nb)) stack.push(nb)
+      }
+    }
+    gid++
+  }
+  return groupMap
+}
+
 // ---- 渲染 ----
 let simulation: d3.Simulation<SimNode, SimEdge> | null = null
 
@@ -255,21 +285,45 @@ function renderGraph() {
 
   const nodeHeight = 55
   const nodeWidth = 140
-  const simWidth = 1600
-  const simHeight = 900
+  const simWidth = 2000
+  const simHeight = 1200
 
-  // ---- 纯力导向布局（无年份尺/辈分约束） ----
+  // ---- 家族分组 + 力导向布局（亲属聚类 + 连线防交叉） ----
+  // 1. 通过连通分量计算家族分组
+  const groupMap = computeFamilyGroups(nodes, [...parentChildEdges, ...spouseEdges])
+  const uniqueGroups = [...new Set(groupMap.values())]
+  // 水平均匀分布各组中心
+  const groupCenters: Record<number, number> = {}
+  uniqueGroups.forEach((g, i) => {
+    groupCenters[g] = (i + 1) * simWidth / (uniqueGroups.length + 1)
+  })
+  // 各家族内，按辈分垂直自然分层（极弱约束，避免同层连线交叉）
+  for (const n of nodes) {
+    n.groupX = groupCenters[groupMap.get(n.id) ?? 0] + (Math.random() - 0.5) * 80
+    n.genY = simHeight / 2 + n.generation * 35
+  }
+
   const sim = d3.forceSimulation<SimNode>(nodes)
+    // 亲子连线：中等距离
     .force('parent-link', d3.forceLink<SimNode, SimEdge>(parentChildEdges)
-      .id(d => d.id).distance(180).strength(0.5))
+      .id(d => d.id).distance(150).strength(0.5))
+    // 配偶连线：极度靠近，强化家庭紧密度
     .force('spouse-link', d3.forceLink<SimNode, SimEdge>(spouseEdges)
-      .id(d => d.id).distance(100).strength(0.7))
-    .force('charge', d3.forceManyBody<SimNode>().strength(-500))
-    .force('center', d3.forceCenter(simWidth / 2, simHeight / 2).strength(0.3))
-    .force('collide', d3.forceCollide<SimNode>(90).strength(1.0))
+      .id(d => d.id).distance(40).strength(2.0))
+    // 斥力减弱，避免家族间过度散开
+    .force('charge', d3.forceManyBody<SimNode>().strength(-150))
+    // 跨组水平分散，防止族间连线交叉
+    .force('group-x', d3.forceX<SimNode>(d => d.groupX!).strength(0.06))
+    // 族内按辈分垂直薄层，避免同层节点平铺导致连线交叉
+    .force('gen-y', d3.forceY<SimNode>(d => d.genY!).strength(0.03))
+    // 画布中心极弱引力，防止节点飘出边界
+    .force('center', d3.forceCenter(simWidth / 2, simHeight / 2).strength(0.02))
+    // 碰撞检测
+    .force('collide', d3.forceCollide<SimNode>(90).strength(0.8))
+    .alpha(0.4).alphaDecay(0.018)
     .stop()
 
-  for (let i = 0; i < 400; i++) { sim.tick() }
+  for (let i = 0; i < 600; i++) { sim.tick() }
   simulation = sim
 
   // 锁定位置
