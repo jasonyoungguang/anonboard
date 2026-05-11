@@ -55,4 +55,8 @@ public class FamilyRelationshipService {
     public boolean deleteRelationship(Long id) {
         return relationshipMapper.deleteById(id) > 0;
     }
+
+    public FamilyRelationship getById(Long id) {
+        return relationshipMapper.selectById(id);
+    }
 }

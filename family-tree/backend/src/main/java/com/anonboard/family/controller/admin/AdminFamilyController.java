@@ -93,6 +93,8 @@ public class AdminFamilyController {
         member.setBio(req.getBio());
 
         if (memberService.updateMember(member)) {
+            // 出生年份变化时，同步更新关联的生育故事
+            memberService.syncChildbirthStoriesForMember(id);
             return Result.success();
         }
         return Result.error(500, "更新成员失败");
@@ -157,6 +159,11 @@ public class AdminFamilyController {
 
     @DeleteMapping("/relationship/{id}")
     public Result<Void> deleteRelationship(@PathVariable Long id) {
+        // 如果是亲子关系，先删除关联的自动生育故事
+        FamilyRelationship rel = relationshipService.getById(id);
+        if (rel != null && "parent-child".equals(rel.getRelationType())) {
+            storyService.deleteChildbirthStoriesByRelationId(id);
+        }
         if (relationshipService.deleteRelationship(id)) {
             return Result.success();
         }

@@ -42,4 +42,9 @@ public class FamilyStory {
 
     @TableField("reviewed_at")
     private LocalDateTime reviewedAt;
+
+    private String source;
+
+    @TableField("source_relation_id")
+    private Long sourceRelationId;
 }

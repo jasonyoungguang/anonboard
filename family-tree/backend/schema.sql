@@ -41,6 +41,8 @@ CREATE TABLE IF NOT EXISTS family_story (
     submitter_name VARCHAR(50) COMMENT '提交人姓名',
     reviewer_id BIGINT COMMENT '审核人ID',
     review_comment VARCHAR(500) COMMENT '审核意见',
+    source VARCHAR(32) DEFAULT 'manual' COMMENT '来源: manual-手动, auto_childbirth-自动生育记录',
+    source_relation_id BIGINT COMMENT '关联关系ID（当source=auto_childbirth时指向family_relationship.id）',
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     reviewed_at DATETIME COMMENT '审核时间',
     FOREIGN KEY (member_id) REFERENCES family_member(id) ON DELETE CASCADE

@@ -15,10 +15,14 @@ public class FamilyMemberService {
 
     private final FamilyMemberMapper memberMapper;
     private final FamilyRelationshipMapper relationshipMapper;
+    private final FamilyStoryService storyService;
 
-    public FamilyMemberService(FamilyMemberMapper memberMapper, FamilyRelationshipMapper relationshipMapper) {
+    public FamilyMemberService(FamilyMemberMapper memberMapper,
+                               FamilyRelationshipMapper relationshipMapper,
+                               FamilyStoryService storyService) {
         this.memberMapper = memberMapper;
         this.relationshipMapper = relationshipMapper;
+        this.storyService = storyService;
     }
 
     public List<FamilyMember> getAllMembers() {
@@ -93,18 +97,72 @@ public class FamilyMemberService {
         memberMapper.insert(newMember);
 
         FamilyRelationship rel = new FamilyRelationship();
+        Long childId;
         if (isParent) {
+            childId = existingId;
             rel.setMemberAId(newMember.getId());
-            rel.setMemberBId(existingId);
+            rel.setMemberBId(childId);
 
-            // 如果是添加父母，检查孩子是否已有另一个异性父母，自动创建配偶关系
-            createSpouseIfBothParentsExist(existingId, newMember);
+            // 检查孩子是否已有另一个异性父母，自动创建配偶关系
+            createSpouseIfBothParentsExist(childId, newMember);
         } else {
+            childId = newMember.getId();
             rel.setMemberAId(existingId);
-            rel.setMemberBId(newMember.getId());
+            rel.setMemberBId(childId);
         }
         rel.setRelationType("parent-child");
-        return relationshipMapper.insert(rel) > 0;
+        relationshipMapper.insert(rel);
+
+        // 自动为所有父母生成/更新生育故事
+        createChildbirthStoriesForParents(childId);
+
+        return true;
+    }
+
+    /**
+     * 为指定成员的所有父母创建/更新生育故事。
+     * 当孩子有出生年份时，在每个父母的生平中自动添加。
+     */
+    public void createChildbirthStoriesForParents(Long childId) {
+        FamilyMember child = memberMapper.selectById(childId);
+        if (child == null || child.getBirthYear() == null) return;
+
+        LambdaQueryWrapper<FamilyRelationship> parentQuery = new LambdaQueryWrapper<>();
+        parentQuery.eq(FamilyRelationship::getMemberBId, childId)
+                   .eq(FamilyRelationship::getRelationType, "parent-child");
+        List<FamilyRelationship> parentRels = relationshipMapper.selectList(parentQuery);
+
+        for (FamilyRelationship pr : parentRels) {
+            storyService.createOrUpdateChildbirthStory(
+                pr.getMemberAId(), child.getId(), child.getName(),
+                child.getGender(), child.getBirthYear(), pr.getId()
+            );
+        }
+    }
+
+    /**
+     * 同步指定成员的所有亲子关系对应的生育故事。
+     * 在成员出生年份变动后调用，更新作为子女和作为父母两个方向的故事。
+     */
+    public void syncChildbirthStoriesForMember(Long memberId) {
+        // 作为子女：更新所有父母的故事
+        createChildbirthStoriesForParents(memberId);
+
+        // 作为父母：更新所有子女对应的故事
+        LambdaQueryWrapper<FamilyRelationship> childQuery = new LambdaQueryWrapper<>();
+        childQuery.eq(FamilyRelationship::getMemberAId, memberId)
+                  .eq(FamilyRelationship::getRelationType, "parent-child");
+        List<FamilyRelationship> childRels = relationshipMapper.selectList(childQuery);
+
+        for (FamilyRelationship cr : childRels) {
+            FamilyMember child = memberMapper.selectById(cr.getMemberBId());
+            if (child != null && child.getBirthYear() != null) {
+                storyService.createOrUpdateChildbirthStory(
+                    memberId, child.getId(), child.getName(),
+                    child.getGender(), child.getBirthYear(), cr.getId()
+                );
+            }
+        }
     }
 
     private void createSpouseIfBothParentsExist(Long childId, FamilyMember newParent) {
